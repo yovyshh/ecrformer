@@ -11,6 +11,7 @@ from util.pytorch_ssim import SSIM
 from util.util import count_parameters, initialize_weights, compute_metric
 from util.augment import TestAugment, TrainAugment
 from util.checkpoint import find_latest_checkpoint
+from util.data_split import build_train_valid_datasets
 
 from models import find_model_using_name
 from data import find_dataset_using_name
@@ -37,7 +38,12 @@ class CloudRemovalModel(pl.LightningModule):
         def loss_SSIM(x1, x2): return 1 - self.SSIM(x1, x2)
         self.loss_fn = [nn.L1Loss(), loss_SSIM]
 
-        self.loss_weight = config.train.loss_weight
+        self.loss_weight = list(config.train.loss_weight[:2])
+        if len(self.loss_weight) != 2:
+            raise ValueError(
+                f'loss_weight must provide at least two entries, got {len(config.train.loss_weight)}'
+            )
+
         self.proj_weight = config.train.proj_weight
 
         self.lr = config.train.lr
@@ -70,7 +76,7 @@ class CloudRemovalModel(pl.LightningModule):
 
         down_projs, up_projs = projs
 
-        # Multi-scale projection loss
+        # Multi-Scale Feature Regularization
         down_loss_sum, up_loss_sum = 0, 0
         mid_target = target
         for down_proj, up_proj in zip(down_projs, up_projs[::-1]):
@@ -113,7 +119,9 @@ class CloudRemovalModel(pl.LightningModule):
         self.log('valid_PSNR', metrics['PSNR'], prog_bar=False, on_epoch=True)
         self.log('valid_SAM', metrics['SAM'], prog_bar=False, on_epoch=True)
         self.log('valid_SSIM', metrics['SSIM'], prog_bar=True, on_epoch=True)
-        valid_loss = metrics['MAE'] * 0.9 + (1 - metrics['SSIM']) * 0.1
+        self.log('valid_LPIPS', metrics['LPIPS'], prog_bar=False, on_epoch=True)
+        valid_loss = metrics['MAE'] * self.loss_weight[0] + \
+            (1 - metrics['SSIM']) * self.loss_weight[1]
         self.log('valid_loss', valid_loss, prog_bar=False, on_epoch=True)
         if len(self.trainer.optimizers) > 0:
             self.log('learning_rate',
@@ -128,7 +136,19 @@ class CloudRemovalModel(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
-            self.parameters(), lr=self.lr * 5., weight_decay=1e-3)
+            self.net.parameters(), lr=self.lr, weight_decay=1e-3)
+        # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        #     optimizer, mode='min', factor=0.5, patience=10)
+        # return {
+        #     'optimizer': optimizer,
+        #     'lr_scheduler': {
+        #         'scheduler': scheduler,
+        #         'monitor': 'valid_loss',
+        #         'interval': 'epoch',
+        #         'frequency': 1,
+        #     },
+        # }
+
         scheduler = torch.optim.lr_scheduler.MultiStepLR(
             optimizer, milestones=[120, 150, 170, 180, 190, 200], gamma=0.5)
         return [optimizer], [scheduler]
@@ -142,27 +162,17 @@ def main(config):
     torch.set_float32_matmul_precision("highest")
     pl.seed_everything(config.seed)
 
-    # 创建数据集
-    print("\n加载数据集……")
-    dataset_class = find_dataset_using_name(config.dataset.name)
-    root = config.dataset.root
-    split = config.dataset.split
-    data_range = config.dataset.data_range
-    crop_size = config.dataset.crop_size
+    print("\nBuilding model...")
+    model = CloudRemovalModel(config)
+    print(f"Model class: {model.net.__class__.__name__}")
+    count_parameters(model)
 
-    if isinstance(split, list):
-        assert len(split) == 2
-        train_split, valid_split = split
-        train_dataset = dataset_class(
-            root, split=train_split, data_range=data_range, crop_size=crop_size)
-        valid_dataset = dataset_class(
-            root, split=valid_split, data_range=data_range)
-    else:
-        dataset = dataset_class(root, split=split, data_range=data_range)
-        train_size = int(config.dataset.train_ratio * len(dataset))
-        valid_size = len(dataset) - train_size
-        train_dataset, valid_dataset = torch.utils.data.random_split(
-            dataset, [train_size, valid_size])
+    print("\nLoading dataset...")
+    dataset_class = find_dataset_using_name(config.dataset.name)
+    train_dataset, valid_dataset, split_info = build_train_valid_datasets(
+        config, dataset_class)
+    print(f"Training split: {split_info['train']}")
+    print(f"Validation split: {split_info['valid']}")
 
     num_workers = config.train.num_workers
     train_loader = DataLoader(
@@ -174,41 +184,33 @@ def main(config):
         shuffle=False, num_workers=num_workers,
         pin_memory=True, persistent_workers=True)
 
-    # 创建模型
-    print("\n创建模型……")
-    model = CloudRemovalModel(config)
-    print(f"模型类: {model.net.__class__.__name__}")
-    count_parameters(model)
-
-    # 回调
     checkpoint_callback = ModelCheckpoint(
-        monitor='valid_SSIM', verbose=False, mode='max',
-        auto_insert_metric_name=True, save_last=True, save_top_k=3)
+        monitor='valid_loss', verbose=False, mode='min',
+        auto_insert_metric_name=True, save_last=True, save_top_k=1)
     early_stop_callback = EarlyStopping(
-        monitor='valid_SSIM', patience=config.train.early_stop,
-        verbose=False, mode='max')
+        monitor='valid_loss', patience=config.train.early_stop,
+        verbose=True, mode='min')
 
-    # 日志
     log_name = config_name
     if config.name:
         log_name = f"{log_name}_{config.name}"
 
     save_dir = config.train.save_dir
 
-    # 自动断点续训
     ckpt_path = config.train.ckpt_path
     resume_version = None
 
     if ckpt_path is None and not getattr(config, 'no_resume', False):
-        auto_ckpt_path, version_num = find_latest_checkpoint(save_dir, log_name)
+        auto_ckpt_path, version_num = find_latest_checkpoint(
+            save_dir, log_name)
         if auto_ckpt_path is not None:
             ckpt_path = auto_ckpt_path
             resume_version = version_num
-            print(f"自动断点续训: {ckpt_path}")
+            print(f"Auto-resume checkpoint: {ckpt_path}")
         else:
-            print("未找到可用checkpoint，从头开始训练")
+            print("No checkpoint found. Training from scratch.")
     elif getattr(config, 'no_resume', False):
-        print("已禁用断点续训")
+        print("Auto-resume is disabled.")
         ckpt_path = None
 
     if resume_version is not None:
@@ -217,11 +219,9 @@ def main(config):
     else:
         tb_logger = TensorBoardLogger(save_dir=save_dir, name=log_name)
 
-    # 训练器
-    print("\n创建训练器……")
+    print("\nCreating trainer...")
     trainer = pl.Trainer(
         max_epochs=config.train.max_epoch,
-        min_epochs=35,
         gradient_clip_val=.5,
         callbacks=[checkpoint_callback, early_stop_callback],
         logger=[tb_logger],
@@ -229,26 +229,25 @@ def main(config):
         **config.optim.__dict__,
     )
 
-    # 开始训练
-    print("\n开始训练……")
-    print(f"实验目录: {os.path.join(save_dir, log_name)}")
+    print("\nStarting training...")
+    print(f"Experiment directory: {os.path.join(save_dir, log_name)}")
     trainer.fit(model, train_dataloaders=train_loader,
                 val_dataloaders=valid_loader, ckpt_path=ckpt_path)
-    print("\n训练完成!")
+    print("\nTraining finished.")
 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument('--config', '-c', type=str,
-                        default='ecrformer', help="配置文件名")
+                        default='ecrformer', help="Config name")
     parser.add_argument('--name', '-n', type=str, default=None)
     parser.add_argument('--gpu', '-g', type=int, default=0)
     parser.add_argument('--no-resume', action='store_true',
-                        help="禁用自动断点续训")
+                        help="Disable automatic checkpoint resume")
     args = parser.parse_args()
 
     config_name = args.config
-    print(f"配置: {config_name}")
+    print(f"Config: {config_name}")
     config_class = find_config_using_name(config_name)
     config = config_class()
     config.name = args.name

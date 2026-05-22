@@ -8,11 +8,12 @@ class ECRformerLightConfig(ECRformerConfig):
     def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
 
+        # only different from ECRformer in scale:
         self.net.cfg['features_start'] = 32
         self.net.cfg['num_blocks'] = [2, 2, 1, 1]
         self.net.cfg['num_refine'] = 2
-
-        self.net.cfg['in_chans'] = [self.NUM_CHANS[key]
-                                    for key in self.net.input]
-        self.net.cfg['out_chans'] = sum(
-            [self.NUM_CHANS[key] for key in self.net.output])
+        
+        # equal to batch_size * accumulate_grad_batches = 16
+        # avoid OOM for 24GB GPU while maintaining stable training
+        self.train.train_bs = 8
+        self.optim.accumulate_grad_batches = 2

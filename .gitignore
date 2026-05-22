@@ -19,8 +19,12 @@ build/
 *.swo
 
 # Experiments & checkpoints
+experiment/
 experiments/
 *.ckpt
+result/
+results/
+*.png
 
 # Data
 *.npz
@@ -29,3 +33,6 @@ datasets/
 # Logs
 *.log
 lightning_logs/
+
+# Test config
+config/test_*

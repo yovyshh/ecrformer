@@ -33,7 +33,7 @@ class NPZ_Dataset(Dataset):
         self.paths_list = npz_file['paths']
         length_list = [len(l) for l in [self.sar_list, self.cloudy_list,
                                         self.target_list, self.paths_list]]
-        assert max(length_list) == min(length_list), "数据集长度不一致！"
+        assert max(length_list) == min(length_list), "Dataset arrays have inconsistent lengths."
         if 'train' in self.split or 'test' in self.split:
             print(f'{len(self)} samples loaded, with SAR: {self.sar_list[0].shape}, '
                   f'Cloudy: {self.cloudy_list[0].shape}, Target: {self.target_list[0].shape}')

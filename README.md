@@ -6,7 +6,7 @@
 
   **[ISPRS Journal of Photogrammetry and Remote Sensing](https://www.sciencedirect.com/journal/isprs-journal-of-photogrammetry-and-remote-sensing)**
 
-  Zaiyan Zhang, Jie Li\*, Yuanqi Liang, Jining Yan, Yi Xiao, Xin Su, Qiangqiang Yuan\*
+  [Zaiyan Zhang](https://zzaiyan.github.io/), Jie Li\*, Yuanqi Liang, Jining Yan, Yi Xiao, Xin Su, Qiangqiang Yuan\*
 
   *Wuhan University & China University of Geosciences & Zhengzhou University*
 
@@ -14,109 +14,86 @@
 
 <div align="center">
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zzaiyan/ECRformer)
+[[Paper]](https://doi.org/10.1016/j.isprsjprs.2026.04.009), [[PDF]](https://zzaiyan.github.io/assets/pubs/ecrformer.pdf), [[DeepWiki]](https://deepwiki.com/zzaiyan/ECRformer)
 
 </div>
 
-## Introduction
+## Updates
 
-Remote sensing imagery is essential for global environmental monitoring, but frequent cloud cover severely limits the utility of optical images. Fusing cloud-prone optical images with cloud-penetrating Synthetic Aperture Radar (SAR) data offers a path to all-weather Earth observation. However, this task faces a dual challenge: the escalating computational cost of state-of-the-art methods and the inherent ill-posedness of the reconstruction under information loss, which complicates the learning process.
+- 2026-05: Updated official testing script, visualization notebook, and pretrained weights.
+- 2026-04: Paper accepted by ISPRS J PRS.
+- 2026-03: Released the code.
+- 2025-11: Created the repository.
 
-To tackle this, we propose **ECRformer** (Efficient Cloud Removal Transformer). ECRformer pairs an efficient architecture with a principled learning paradigm to address both challenges through:
 
-1. A suite of efficient attention mechanisms, including **Cross-Covariance Attention (XCA)** for computationally-aware multimodal feature fusion and **Multi-Dilation Window Attention (MDWA)** for capturing multi-scale spatial context with linear complexity;
-2. The **Semantic-Decoupled Feature Learning (SDFL)** paradigm, a novel training strategy that decomposes the ill-posed reconstruction task into two well-defined sub-problems: structure recovery and texture rendering. By applying asymmetric supervision (structural loss on the encoder, texture loss on the decoder), SDFL provides a more principled learning process.
+## Overview
 
-These improvements enhance reconstruction quality, training stability, and reliability, culminating in new **state-of-the-art (SOTA)** performance on both the SEN12MS-CR and LuojiaSET-OSFCR large-scale optical-SAR cloud removal datasets. Notably, ECRformer surpasses previous SOTA methods by **1.23/0.90 dB in PSNR**, while requiring only **28.9% of the parameters** and **24.5% of the FLOPs**, providing a powerful, efficient, and reliable solution for multimodal cloud removal.
+Remote sensing imagery is essential for environmental monitoring, but frequent cloud cover severely limits the usability of optical observations. ECRformer addresses multimodal optical-SAR cloud removal with an efficient transformer backbone and a principled training strategy.
 
-<br>
+The method combines:
+
+1. Efficient attention mechanisms such as Cross-Covariance Attention (XCA) and Multi-Dilation Window Attention (MDWA) for multimodal feature fusion and multi-scale spatial modeling.
+2. Semantic-Decoupled Feature Learning (SDFL), which separates structure recovery and texture rendering to improve optimization stability and reconstruction quality.
+
+These design choices lead to strong performance on SEN12MS-CR and LuojiaSET-OSFCR while keeping the model lightweight and practical.
 
 <div align="center">
   <img src="assets/ecrformer.png" width="800px">
-  <p><em>The overall framework of ECRformer. The U-shaped backbone with efficient ECRformer Blocks processes concatenated optical and SAR inputs, while the SDFL paradigm applies asymmetric supervision to guide progressive reconstruction from structure to texture.</em></p>
+  <p><em>The overall framework of ECRformer.</em></p>
 </div>
 
-## Main Results
+### Results
 
-### Quantitative Comparison on SEN12MS-CR and LuojiaSET-OSFCR
+#### Quantitative Comparison on SEN12MS-CR and LuojiaSET-OSFCR
 
 <img src="assets/table1.png" width="800px">
 
-### Visualization under Different Cloud Cover Conditions
+#### Visualization under Different Cloud Cover Conditions
 
 <img src="assets/example_via_cloud_coverage.svg" width="800px">
 
-## Project Structure
-
-```
-ECRformer/
-├── train.py                 # Training entry point (CloudRemovalModel)
-├── requirements.txt
-├── models/
-│   ├── __init__.py
-│   ├── ecrformer_model.py   # ECRformerModel (main architecture)
-│   ├── module.py            # Attention & block implementations (XCA, MDWA, SGFN)
-│   └── module_util.py       # LayerNorm variants, PreNorm, helpers
-├── config/
-│   ├── __init__.py
-│   ├── base_config.py       # Base configuration (shared hyperparameters)
-│   ├── ecrformer_config.py  # ECRformer config
-│   ├── ecrformer_light_config.py      # ECRformer-Light config
-│   └── ecrformer_sen12mscr_config.py  # ECRformer on raw SEN12MS-CR .tif
-├── data/
-│   ├── __init__.py
-│   ├── npz_dataset.py       # Pre-processed NPZ dataset
-│   ├── sen12mscr_dataset.py # SEN12MS-CR raw .tif dataset loader
-│   └── luojiaset_dataset.py # LuojiaSET-OSFCR dataset loader
-└── util/
-    ├── __init__.py
-    ├── util.py              # Metrics, initialization, param counting
-    ├── augment.py           # Train/test augmentation
-    ├── checkpoint.py        # Auto-resume from checkpoint
-    ├── EMA.py               # Exponential Moving Average callback
-    └── pytorch_ssim/        # SSIM module
-```
-
-## Model Variants
+### Model Variants
 
 | Variant | Embed Dim | Depth per Stage | Bottleneck | Refinement | Params | FLOPs |
 |---------|-----------|-----------------|------------|------------|--------|-------|
 | ECRformer | 48 | [2, 3, 2] | 2 | 4 | 11.29M | 102.47G |
 | ECRformer-Light | 32 | [2, 2, 1] | 1 | 2 | 3.70M | 35.78G |
 
-## Requirements
+## Quick Start
+
+### Environment Setup
 
 - Python >= 3.10
 - PyTorch >= 2.0
 - PyTorch Lightning >= 2.0
 
 ```bash
-pip install -r requirements.txt
+conda create -n ecrformer python=3.10 gdal rasterio
+conda activate ecrformer && pip install -r requirements.txt
 ```
 
-Additional dependencies for raw SEN12MS-CR .tif loading:
-```bash
-pip install rasterio natsort
-```
+### Dataset Preparation
 
-## Dataset Preparation
+The default configs already use the raw SEN12MS-CR dataset loader. Update the dataset root in `config/base_config.py`:
 
-### Option A: Pre-processed NPZ format (recommended)
-
-Place your `.npz` files under the dataset root. Each file should contain arrays `s1`, `s2`, `label`.
-
-Edit `config/ecrformer_config.py`:
 ```python
-self.dataset.root = "/path/to/npz_datasets"
-self.dataset.split = ["ALL_train", "ALL_test"]
+self.dataset.root = "/path/to/SEN12MSCR"
 ```
 
-### Option B: Raw SEN12MS-CR .tif
+The default split is:
 
-Download the SEN12MS-CR dataset from: https://patricktum.github.io/cloud_removal/sen12mscr/
-
-The expected directory structure:
+```python
+self.dataset.split = ["train", "val", "test"]
 ```
+
+This means:
+
+- `train.py` uses `train` and `val` by default.
+- `test.py` uses `test` by default.
+
+Expected SEN12MS-CR directory structure:
+
+```text
 SEN12MSCR/
 ├── ROIs1158_spring_s1/
 │   └── s1_1/
@@ -128,42 +105,70 @@ SEN12MSCR/
 ...
 ```
 
-Edit `config/ecrformer_sen12mscr_config.py`:
-```python
-self.dataset.root = "/path/to/SEN12MSCR"
-```
+The repository still keeps `data/npz_dataset.py` for legacy workflows, but the default documented path is raw SEN12MS-CR.
 
-## Training
+### Inference
 
 ```bash
-# Train ECRformer (default)
+# Auto-find the latest checkpoint under experiments/ and export to png/npz/both
+python test.py --config ecrformer --gpu 0 --export-format png
+
+# Evaluate a specific checkpoint
+python test.py --config ecrformer --ckpt-path /path/to/checkpoint.ckpt --gpu 0
+```
+
+By default, outputs are written to `results/<run>/<split>/`, including:
+
+- `metrics.csv`
+- `summary.json`
+- `pred_npz/` when `--export-format` includes `npz`
+- `pred_rgb/` when `--export-format` includes `png`
+
+### Training
+
+```bash
+# Train ECRformer
 python train.py --config ecrformer --gpu 0
 
 # Train ECRformer-Light
 python train.py --config ecrformer_light --gpu 0
 
-# Train with custom experiment name
+# Train with a custom experiment name
 python train.py --config ecrformer --name my_experiment --gpu 0
 ```
 
-Training logs are saved to `./experiments/` and can be viewed with TensorBoard:
+Training logs are saved to `experiments/`. You can inspect them with TensorBoard:
+
 ```bash
 tensorboard --logdir experiments/
 ```
 
-## Contact
+### Visualization
 
-If you have any questions or suggestions, feel free to contact us.
+Use [visualize_predictions.ipynb](visualize_predictions.ipynb) to compare exported predictions with the corresponding dataset samples.
 
-📧 Email: zzaiyan@whu.edu.cn
+The notebook supports:
 
-## Citation
+- multiple sample indices in one run
+- row-wise visualization of SAR mean, Cloudy RGB, Prediction RGB, Target RGB, and Error Map
+- RGB rendering consistent with `test.py`
+- optional per-band statistics when `pred_npz` is available
+
+## Reference
+
+### Contact
+
+If you have any questions or suggestions, please contact:
+
+📧 zzaiyan@whu.edu.cn, 1@zzaiyan.com
+
+### Citation
 
 If you find this work useful, please cite:
 
 ```bibtex
 @article{zhang2026ecrformer,
-    title     = {{ECRformer: An Efficient Cloud Removal Transformer with Semantic-Decoupled Learning for Multimodal Satellite Imagery}},
+    title     = {{ECRformer: An efficient cloud removal Transformer with semantic-decoupled learning for multimodal satellite imagery}},
     author    = {Zhang, Zaiyan and Li, Jie and Liang, Yuanqi and Yan, Jining and Xiao, Yi and Su, Xin and Yuan, Qiangqiang},
     journal   = {ISPRS Journal of Photogrammetry and Remote Sensing},
     volume    = {237},
@@ -174,10 +179,10 @@ If you find this work useful, please cite:
 }
 ```
 
-## Acknowledgements
+## Acknowledgement
 
 - [Restormer](https://github.com/swz30/Restormer) — Transposed Attention and GatedFFN design.
 - [SEN12MS-CR](https://patricktum.github.io/cloud_removal/sen12mscr/) — Training, validation and testing.
-- [LuojiaSET-OSFCR](https://github.com/RSIIPAC/LuojiaSET-OSFCR) — Cross-domain testing. 
+- [LuojiaSET-OSFCR](https://github.com/RSIIPAC/LuojiaSET-OSFCR) — Cross-domain testing.
 - [PyTorch Image Models](https://github.com/huggingface/pytorch-image-models) — Useful toolkit.
 - [PyTorch Lightning](https://github.com/Lightning-AI/pytorch-lightning) — Elegant training framework.

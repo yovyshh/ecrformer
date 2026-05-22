@@ -16,10 +16,10 @@ class BaseConfig(Namespace):
 
         # 数据集
         self.dataset = Namespace(
-            name='npz',
-            root=r"/path/to/datasets",
-            split=["ALL_train", "ALL_test"],
-            train_ratio=0.8,    # 当split只包含一个元素时，才使用train_ratio划分训练/验证集
+            name='sen12mscr',
+            root=r"/data/zzy/SEN12MS-CR", # replace with actual path
+            split=["train", "val", "test"],
+            train_ratio=0.8, # enabled when split only contains one element
             data_range=1.0,
             crop_size=128,
         )
@@ -31,8 +31,8 @@ class BaseConfig(Namespace):
             lr=4e-4,
             loss_weight=[0.9, 0.1],
             proj_weight=[0., 0.],
-            train_bs=16,
-            valid_bs=32,
+            train_bs=8,
+            valid_bs=16,
             num_workers=8,
             ckpt_path=None,
             save_dir='./experiments',

@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.init as init
 from .pytorch_ssim import ssim as calc_ssim
+from .lpips_loss import compute_lpips
 from typing import Literal
 
 
@@ -25,7 +26,7 @@ def count_parameters(model: torch.nn.Module, mode: Literal['return', 'print'] = 
 
 @torch.no_grad()
 def compute_metric(pred, target, size_average=False, eps=1e-9):
-    """Compute image quality metrics: RMSE, MAE, PSNR, SAM, SSIM."""
+    """Compute image quality metrics: RMSE, MAE, PSNR, SAM, SSIM, LPIPS."""
     rmse = torch.sqrt(torch.mean(torch.square(pred - target), dim=(1, 2, 3)))
     psnr = 20 * torch.log10(1 / (rmse + eps))
     mae = torch.mean(torch.abs(pred - target), dim=(1, 2, 3))
@@ -37,6 +38,7 @@ def compute_metric(pred, target, size_average=False, eps=1e-9):
                      dim=(1, 2)) * 180 / torch.pi
 
     ssim = calc_ssim(pred, target, size_average=False)
+    lpips = compute_lpips(pred, target, reduction='none')
 
     metrics = {
         'RMSE': rmse,
@@ -44,6 +46,7 @@ def compute_metric(pred, target, size_average=False, eps=1e-9):
         'PSNR': psnr,
         'SAM': sam,
         'SSIM': ssim,
+        'LPIPS': lpips,
     }
     post_fn = lambda x: x.mean() if size_average else x
     metrics = {k: post_fn(v.cpu()) for k, v in metrics.items()}

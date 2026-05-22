@@ -4,6 +4,8 @@ timm
 einops
 numpy
 tensorboard
-rasterio
 natsort
 tqdm
+matplotlib
+Pillow
+lpips

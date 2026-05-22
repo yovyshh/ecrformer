@@ -22,11 +22,12 @@ class ECRformerConfig(BaseConfig):
         )
 
         self.net.output = ['target']
-
-        self.train.train_bs = 8
-        self.train.valid_bs = 4
-        self.optim.accumulate_grad_batches = 2
+        # SDFL loss weights
         self.train.proj_weight = [0.05, 0.05]
+        # equal to batch_size * accumulate_grad_batches = 16
+        # avoid OOM for 24GB GPU while maintaining stable training
+        self.train.train_bs = 4
+        self.optim.accumulate_grad_batches = 4
 
         self.net.cfg['in_chans'] = [self.NUM_CHANS[key]
                                     for key in self.net.input]
