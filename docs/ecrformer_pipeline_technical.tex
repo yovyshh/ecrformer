@@ -1,0 +1,848 @@
+% =====================================================================
+%  ECRformer-Lite / SEN12MS-CR cloud-removal pipeline
+%  Complete technical record of the work performed up to 2026-10-15
+%  Author of record: Vaishnav (yovyshh)
+%  Compile with: pdflatex ecrformer_pipeline.tex   (run twice for refs)
+% =====================================================================
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{array}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage[hidelinks]{hyperref}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  framerule=0.3pt,
+  rulecolor=\color{gray!50},
+  backgroundcolor=\color{gray!8},
+  showstringspaces=false,
+  keywordstyle=\color{blue!70!black},
+  commentstyle=\color{green!40!black},
+  language=bash
+}
+
+\newcommand{\code}[1]{\texttt{#1}}
+
+\title{\textbf{ECRformer-Lite for Sentinel-2 Cloud Removal}\\[0.3em]
+\large Complete Pipeline, Experiments and Diagnostics\\[0.2em]
+\normalsize Record of work to 2026-10-15}
+\author{Vaishnav (yovyshh)}
+\date{2026-10-15}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+This document records the full pipeline built on top of the ECRformer architecture for
+multimodal optical--SAR cloud removal on a cached Sentinel-2 / Sentinel-1 dataset, together with
+every experiment and diagnostic run performed so far. It states the data contract, the
+architecture exactly as instantiated, the objective function, the optimisation and validation
+protocol, the preserved checkpoint lineage, the chronological diagnostic workstreams, and the
+currently running gradient-preservation pilot. A final section records the measured limitations
+of the current baseline without softening them. Every numeric value quoted here was produced by a
+script in the repository; values that are not recorded in the preserved artefacts are marked as
+such rather than guessed.
+\end{abstract}
+
+\tableofcontents
+
+% ---------------------------------------------------------------------
+\section{Scope, task and notation}
+% ---------------------------------------------------------------------
+
+The task is \emph{cloud removal}: given a cloudy multi-band optical image and a co-registered
+SAR image, produce a cloud-free optical image.
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\hline
+Symbol & Meaning \\
+\hline
+$S2_c$ & cloudy optical observation, 4 bands (B04, B03, B02, B08), reflectance in $[0,1]$ \\
+$S1$   & Sentinel-1 SAR, 2 bands (VV, VH), stored in dB \\
+$M$    & soft cloud mask, 1 band, $[0,1]$, cloud-positive \\
+$Y$    & cloud-free optical reference (target) \\
+$P$    & raw network prediction, \code{pred\_direct}, 4 bands, absolute reflectance \\
+$\hat Y$ & mask-blended network output \\
+\hline
+\end{tabular}
+\end{center}
+
+The model input is the 7-channel tensor $X = [\,S1,\; S2_c,\; M\,]$ and the blended output is
+
+\begin{equation}
+\hat Y = (1-M)\odot S2_c \;+\; M \odot P .
+\label{eq:blend}
+\end{equation}
+
+Equation~\eqref{eq:blend} is a \emph{policy} statement: clear pixels are returned verbatim from the
+input. It is not an accuracy statement, and Section~\ref{sec:limits} quantifies what it costs.
+
+% ---------------------------------------------------------------------
+\section{Data}
+% ---------------------------------------------------------------------
+
+\subsection{Source and cache}
+
+The upstream dataset is SEN12MS-CR / SEN12MS-CR-TS: paired Sentinel-1 and Sentinel-2 patches over
+ROI tiles, each cloudy observation paired with a cloud-free observation of the same tile acquired
+on a \emph{different date}. A pre-decoded, pre-aligned cache is used:
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\hline
+Item & Value \\
+\hline
+Cache root & \code{C:/Users/Windows 11 Pro/Videos/Projects/GAN/cache\_fall\_v3} \\
+Training patches & 33{,}468 \\
+Validation patches & 1{,}115 \\
+Test split & held-out scene \code{s2\_139} --- \textbf{never accessed} \\
+Patch size & $256\times256$ \\
+Optical bands & B04 (red), B03 (green), B02 (blue), B08 (NIR) \\
+File format & one \code{.npz} per patch per split \\
+\hline
+\end{tabular}
+\end{center}
+
+The cache lives in a sibling project directory (\code{Projects/GAN}), not inside the model
+repository. This is a known coupling in the setup (Section~\ref{sec:limits}).
+
+\subsection{Per-sample contract}
+
+\code{data/cache\_dataset.py} returns a 5-tuple:
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\hline
+Index & Tensor & Shape \\
+\hline
+0 & \code{s2\_cloudy} & $(4,256,256)$ \\
+1 & \code{s1}        & $(2,256,256)$ \\
+2 & \code{s2\_clear} & $(4,256,256)$ \\
+3 & \code{cf}        & scalar, stored cloud fraction \\
+4 & \code{mask}      & $(1,256,256)$ \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{SAR normalisation (on the fly, at load time)}
+
+Four modes exist; the pipeline uses \code{paper\_exact}:
+
+\begin{align*}
+\text{VV}:&\quad \mathrm{clamp}(x,\,-25,\,0)/25 + 0 \quad\text{ i.e. } [-25,0]\,\text{dB} \to [0,1] \\
+\text{VH}:&\quad \mathrm{clamp}(x,\,-35,\,0)/35 \qquad\text{ i.e. } [-35,0]\,\text{dB} \to [0,1]
+\end{align*}
+
+The alternatives \code{paper\_default} (both bands $[-25,0]$), \code{sen12ms\_resnet}
+(VV $[-25,0]$, VH $[-32.5,0]$) and \code{raw} (unmodified dB) are retained and were
+cross-checked in \code{tests/test\_final\_checks.py}.
+
+\subsection{Mask refinement (three steps, applied every load)}
+
+\begin{enumerate}
+\item $9\times9$ mean filter, threshold at $0.5$ --- removes speckle:
+      $m_1 = \mathbb{1}[\mathrm{avgpool}_{9\times9}(M) > 0.5]$
+\item morphological dilation, radius 2 ($5\times5$ max-pool) --- grows the cloud region:
+      $m_2 = \mathrm{maxpool}_{5\times5}(m_1)$
+\item Gaussian blur ($k=11$, $\sigma=2$) --- produces the soft boundary:
+      $M' = \mathrm{clamp}(\mathrm{gauss}_{11,2}(m_2), 0, 1)$
+\end{enumerate}
+
+All four tensors are cropped with the \emph{same} window, keeping pixel alignment.
+
+\subsection{Cropping policy}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\hline
+Split & Crop \\
+\hline
+Training & \code{crop\_size=128}, window sampled randomly per sample \\
+Validation & \code{crop\_size=128}, window fixed to the image centre (deterministic) \\
+Full-resolution diagnostics & \code{crop\_size=None} $\Rightarrow$ the whole $256\times256$ patch \\
+\hline
+\end{tabular}
+\end{center}
+
+The two evaluation regimes (masked 128 centre-crop vs.\ all-pixel full 256) are \textbf{not
+comparable}; differences reach 2.3~dB with mixed sign. See Section~\ref{sec:limits}.
+
+% ---------------------------------------------------------------------
+\section{Architecture}
+% ---------------------------------------------------------------------
+
+\subsection{Wrapper: \code{ECRformerAdaptedModel}}
+
+A thin adapter around the upstream backbone, adding decoupled stems, a 4-channel output head and
+the multi-scale auxiliary heads needed by the SDFL loss.
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\hline
+Component & Configuration \\
+\hline
+Branch 0 (radar stem) & \code{Conv2d(2, 16, k=7, p=3)} on SAR \\
+Branch 1 (optical stem) & \code{Conv2d(5, 16, k=7, p=3)} on $[S2_c, M]$ \\
+Backbone & \code{ECRformerModel}, decoupled input \\
+  & \code{num\_layers=4}, \code{num\_blocks=[2,2,1,1]} \\
+  & \code{features\_start=32} (``Light'' width) \\
+  & \code{bottle\_neck='tsa'}, \code{cbam='1ca2+1sa2'} \\
+  & \code{num\_refine=0} (refinement path bypassed) \\
+  & \code{conv\_type='conv'}, \code{norm\_type='batch'} \\
+Output head & \code{final\_conv: Conv2d(64, 4, k=3, p=1)} \\
+Auxiliary heads & 3 \code{down\_proj} (encoder) + 3 \code{up\_proj} (decoder), 4 ch each \\
+Head init & \code{head\_init='mean\_prior'} \\
+\hline
+\end{tabular}
+\end{center}
+
+The \code{mean\_prior} initialisation sets the bias of \code{final\_conv} and of every auxiliary
+head to the empirical clear-terrain band means
+\code{CLEAR\_CHANNEL\_MEANS = [0.0847, 0.0919, 0.1127, 0.1884]} for B04/B03/B02/B08, and initialises
+the corresponding weights from $\mathcal{N}(0, 0.005^2)$. The network therefore starts as a
+constant clear-scene image and learns only a correction to it. This is deliberate --- it makes the
+learning problem well-conditioned --- but it also biases the solution toward the mean
+(Section~\ref{sec:limits}).
+
+\subsection{Forward pass}
+
+\begin{lstlisting}[language=Python]
+x_in = cat([s1, s2_cloudy, mask], dim=1)          # [B, 7, H, W]
+pred_direct, (down_projs, up_projs) = backbone(x_in)   # P, [B,4,H,W]
+out = (1.0 - mask) * s2_cloudy + mask * pred_direct    # Eq. (1)
+\end{lstlisting}
+
+No hard-coded spatial constants exist anywhere in the backbone: all shapes are derived from the
+input, so $256\times256$ inference needs no crop, resize or padding. (This was verified explicitly
+in \code{diagnostics\_full256\_epoch30/REPORT.md}.)
+
+\subsection{Repositories of record}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\hline
+Role & Source \\
+\hline
+Upstream method & \code{github.com/zzaiyan/ECRformer} (ISPRS J.~P.~RS, 2026) \\
+  & XCA + MDWA attention; SDFL training strategy \\
+Task reference for video segmentation & \code{github.com/AMVerge-team/AMVerge} \\
+\hline
+\end{tabular}
+\end{center}
+
+% ---------------------------------------------------------------------
+\section{Objective function}
+% ---------------------------------------------------------------------
+
+\subsection{SDFL loss (\code{losses/sdfl\_loss.py})}
+
+Semantic-Decoupled Feature Learning supervises the encoder multi-scale features with a
+structure-oriented criterion and the decoder features with a texture/radiometric criterion.
+
+\paragraph{Encoder (down) branch --- structure-oriented, defaults $0.9/0.1$}
+\begin{equation}
+\mathcal{L}_{enc} = \frac{1}{N}\sum_{s=1}^{N}
+\Big[ w^{enc}_{ssim}\big(1-\mathrm{SSIM}(D_s, Y_s)\big) + w^{enc}_{l1}\,\|D_s - Y_s\|_1 \Big]
+\end{equation}
+
+\paragraph{Decoder (up) branch --- texture-oriented, defaults $0.9/0.1$}
+\begin{equation}
+\mathcal{L}_{dec} = \frac{1}{N}\sum_{s=1}^{N}
+\Big[ w^{dec}_{l1}\,\|U_s - Y_s\|_1 + w^{dec}_{ssim}\big(1-\mathrm{SSIM}(U_s, Y_s)\big) \Big]
+\end{equation}
+
+where $D_s, U_s$ are the \code{down\_proj} / \code{up\_proj} features at scale $s$, $Y_s$ is the
+correspondingly downsampled target ($N=3$ scales, $Y_1 = Y$), and $\mathrm{SSIM}$ is computed by
+\code{util/pytorch\_ssim} with an $11\times11$ window.
+
+\paragraph{Main term --- full-domain supervision on the raw prediction}
+With \code{full\_domain\_main=True} the main loss is applied to $P$ (not to $\hat Y$) and is
+unmasked, so the network is penalised everywhere, including clear ground:
+\begin{equation}
+\mathcal{L}_{main} = w^{main}_{l1}\,\|P - Y\|_1
+      + w^{main}_{ssim}\big(1 - \mathrm{SSIM}(P, Y)\big)
+\end{equation}
+
+A masked, area-normalised L1 on the blended output is still computed but only as a diagnostic:
+\begin{equation}
+\mathcal{L}^{diag}_{l1,cloudy} = \frac{\sum |\hat Y - Y| \odot M}{C\cdot\sum M + \varepsilon},
+\qquad \varepsilon = 10^{-8},\; C = 4 .
+\end{equation}
+
+\paragraph{Total}
+\begin{equation}
+\mathcal{L}_{total} = (1-\lambda_{enc}-\lambda_{dec})\,\mathcal{L}_{main}
+      + \lambda_{enc}\mathcal{L}_{enc} + \lambda_{dec}\mathcal{L}_{dec}
+\end{equation}
+
+The alternative \code{paper\_additive} form uses coefficient $1.0$ on $\mathcal{L}_{main}$ instead
+of $0.9$. Both forms are asserted against hand-computed values to $<10^{-5}$ in the test suite.
+
+\subsection{Weight selection actually used}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\hline
+Parameter & Class default & Value used in the pilot \\
+\hline
+\code{total\_loss\_form} & \code{repo\_convex} & \code{repo\_convex} \\
+\code{sdfl\_mode} & \code{official\_repo} & \code{official\_repo} (enc 0.9/0.1, dec 0.9/0.1) \\
+\code{lambda\_enc} & 0.05 & 0.05 \\
+\code{lambda\_dec} & 0.05 & 0.05 \\
+\code{w\_main\_l1} & 0.9 & 1.0 \\
+\code{w\_main\_ssim} & 0.1 & 0.0 \\
+\hline
+\end{tabular}
+\end{center}
+
+The weights used for the preserved epoch-30 baseline run are \textbf{not recorded in the
+checkpoint} (\code{best\_model.pth} stores only the state dicts and a blended PSNR). This is a
+documented gap, not an assumption.
+
+\subsection{Gradient-preservation term (new, current experiment)}
+\label{sec:gradloss}
+
+An added finite-difference term, motivated by the measured high-frequency loss in
+Section~\ref{sec:limits}:
+\begin{align}
+D_x(Q) &= Q[\dots,:,1:] - Q[\dots,:,:-1] \\
+D_y(Q) &= Q[\dots,1:,:] - Q[\dots,:-1,:] \\
+\mathcal{L}_{grad} &= \overline{|D_x(P)-D_x(Y)|} + \overline{|D_y(P)-D_y(Y)|} \\
+\mathcal{L}_{total}^{new} &= \mathcal{L}_{total} + \lambda_{grad}\mathcal{L}_{grad}
+\end{align}
+
+Applied to the raw prediction $P$, all four bands, reflectance units, no resize or normalisation.
+
+The weight was \emph{measured}, not chosen. On eight fixed-seed training-only batches (batch
+size 4) with the epoch-30 EMA in \code{torch.inference\_mode()} and no backward pass:
+\begin{equation}
+\lambda_{grad} = \frac{0.05}{\operatorname{median}\!\big(\mathcal{L}_{grad}/\mathcal{L}_{others}\big)}
+= 0.07943353602356962
+\label{eq:lambda}
+\end{equation}
+
+\begin{center}
+\begin{tabular}{@{}rrrrrr@{}}
+\hline
+Batch & $\mathcal{L}_{main}$ & $\mathcal{L}_{enc}$ & $\mathcal{L}_{dec}$
+     & $\mathcal{L}_{others}$ & $\mathcal{L}_{grad}$ \\
+\hline
+0 & 0.008887 & 0.085063 & 0.016286 & 0.013065 & 0.005254 \\
+1 & 0.014498 & 0.106879 & 0.021368 & 0.019461 & 0.011182 \\
+2 & 0.011357 & 0.090140 & 0.017162 & 0.015586 & 0.009424 \\
+3 & 0.008130 & 0.056070 & 0.011343 & 0.010688 & 0.006526 \\
+4 & 0.012301 & 0.135141 & 0.020505 & 0.018853 & 0.012224 \\
+5 & 0.008031 & 0.053215 & 0.011741 & 0.010475 & 0.007184 \\
+6 & 0.008612 & 0.059500 & 0.012609 & 0.011357 & 0.009234 \\
+7 & 0.011279 & 0.075925 & 0.016575 & 0.014776 & 0.009719 \\
+\hline
+\end{tabular}
+\end{center}
+
+Median weighted share $5.00\%$, maximum $6.46\%$ (guard $\le 10\%$). Artefact:
+\code{experiments/ecrformer\_gradient\_pilot/probe\_loss\_scale.json}.
+
+\emph{Correction of record.} An earlier plan draft stated
+$\lambda = 0.05\cdot\operatorname{median}(\mathcal{L}_{others}/\mathcal{L}_{grad})$. That form does
+not generally place the median weighted contribution at 5\%. The implemented form,
+Eq.~\eqref{eq:lambda}, does, and the table above verifies it.
+
+% ---------------------------------------------------------------------
+\section{Optimisation and training loop}
+% ---------------------------------------------------------------------
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\hline
+Item & Setting \\
+\hline
+Optimiser & Adam (PyTorch defaults) \\
+Gradient clipping & \code{clip\_grad\_norm\_(max\_norm=1.0)} per optimiser update \\
+Gradient accumulation & \code{accum\_steps} micro-batches per update \\
+LR schedule & \code{CosineAnnealingLR(T\_max = epochs, eta\_min = min\_lr)} \\
+EMA & \code{update\_ema(ema\_model, model, decay=0.999)} on every update \\
+Precision & \code{fp32} (default) or \code{bf16} under \code{torch.autocast} \\
+DataLoader workers & configurable (\code{--num\_workers}) \\
+Checkpoint selection & \code{--select\_metric raw|blend} \\
+\hline
+\end{tabular}
+\end{center}
+
+EMA is applied parameter-wise over the floating-point entries of both state dicts and the
+\code{ema\_state\_dict} is what is used for scoring.
+
+\subsection{Validation protocol}
+
+\code{validate()} evaluates on cloudy pixels (\code{mask > 0.1}) and stratifies into six buckets:
+\code{all}, \code{light}, \code{medium}, \code{heavy}, \code{heavy\_opaque}, \code{heavy\_hazy}.
+Two tensors are scored from the \emph{same} forward pass:
+
+\begin{itemize}
+\item \code{raw} $=P$ (\code{pred\_direct}) --- the primary experimental result;
+\item \code{blend} $=\hat Y$ --- comparison only; in clear regions it is identical to the input.
+\end{itemize}
+
+Per-variant metrics are \code{psnr}, \code{ssim}, \code{l1}, \code{pearson}, \code{ndvi\_mae},
+\code{ndvi\_r} plus per-band L1/means. The legacy unsuffixed keys alias whichever variant
+\code{--select\_metric} names. Each epoch also records band statistics of prediction and target
+so that drift toward the mean is visible during training.
+
+% ---------------------------------------------------------------------
+\section{Checkpoint and run lineage}
+% ---------------------------------------------------------------------
+
+\subsection{Preserved baseline}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\hline
+Item & Value \\
+\hline
+Path & \code{checkpoints/ecrformer\_light\_128\_50ep/best\_model.pth} \\
+Epoch & 30 \\
+Weights scored & \code{ema\_state\_dict} \\
+Stored \code{psnr} & 30.1982 \emph{(blended semantics)} \\
+\code{psnr\_select} key & \textbf{absent} --- selection metric not recorded \\
+\code{scheduler\_state\_dict} & \textbf{absent} --- resume position unknowable \\
+File size & 58{,}406{,}779 bytes \\
+SHA-256 & \code{2f02aca75619a8b4db52ca5ef4910a0ad305e80c68d48c035c0bb975e5b1a5b6} \\
+\hline
+\end{tabular}
+\end{center}
+
+\code{latest\_model.pth} in the same directory is at epoch 32 with optimiser LR
+$2.2222\times10^{-5}$ (versus $1.4474\times10^{-4}$ in the best checkpoint): training continued two
+epochs past the best point without improving the selection metric, and no record explains why it
+stopped there.
+
+\subsection{Archive for reversion}
+
+The baseline checkpoint, twelve full-resolution output pairs, comparison figures, metric tables
+and a README were published as a separate private repository,
+\code{github.com/yovyshh/ecrformer-lite-baseline-archive}, precisely so that the epoch-30 state can
+be recovered independently of the working tree. The checkpoint digest is recorded in
+\code{checkpoint/SHA256SUMS} inside that repository and matches the table above. The archive
+deliberately excludes the dataset cache, the held-out scene, training code and later checkpoints.
+
+\subsection{All run directories present}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\hline
+Run & Note \\
+\hline
+\code{ecrformer\_light\_128\_stage1} & stage-1 run \\
+\code{ecrformer\_light\_128\_50ep} & \textbf{preserved baseline} (best = epoch 30) \\
+\code{ecrformer\_light\_sdfl} & SDFL integration run \\
+\code{ecrformer\_light\_sdfl\_run1\_diverged} & \textbf{diverged} --- kept as evidence \\
+\code{ecrformer\_light\_sdfl\_run2..run5} & iterations \\
+\code{ecrformer\_light\_sdfl\_run6} & last pre-cache run \\
+\code{experiments/ecrformer\_gradient\_pilot} & current, isolated (Section~\ref{sec:pilot}) \\
+\hline
+\end{tabular}
+\end{center}
+
+Upstream pretrained weights are kept under \code{pretrained/} (\code{full.ckpt},
+\code{light.ckpt}) and are not modified.
+
+% ---------------------------------------------------------------------
+\section{Diagnostic workstreams (chronological)}
+% ---------------------------------------------------------------------
+
+All directories below were produced read-only: no checkpoint, cache, model or history file was
+modified by any of them, and \code{s2\_139} was never opened.
+
+\begin{center}
+\begin{tabular}{@{}llp{8.2cm}@{}}
+\hline
+Time (2026) & Directory & Purpose / finding \\
+\hline
+13:22 & \code{diagnostics\_epoch30} & epoch-30 reference outputs \\
+13:50 & \code{diagnostics\_cloud\_coverage} & behaviour stratified by cloud coverage \\
+14:09 & \code{diagnostics\_model\_quality} & output-quality inspection \\
+14:29 & \code{diagnostics\_fixes} & resume / blend / scheduler fixes and their pre-verification \\
+14:30 & \code{diagnostics\_raw\_outputs} & raw \code{pred\_direct} saved unclipped \\
+14:41 & \code{diagnostics\_full256\_epoch30} & full $256\times256$ inference, 12 patches, 6-panel figures; established that resolution does not recover sharpness \\
+15:00 & \code{diagnostics\_smoothing\_audit} & quantified the over-smoothing \\
+15:11 & \code{diagnostics\_regime\_audit} & regime stratification audit \\
+15:25 & \code{diagnostics\_regime\_27x27} & small-patch regime study \\
+15:39 & \code{diagnostics\_scene\_compare} & cross-scene comparison \\
+17:55 & \code{diagnostics\_shadow\_audit} & shadow / dark-surface hypothesis ruled out or bounded \\
+18:09 & \code{diagnostics\_ocm\_stage0} & occlusion-mask stage-0 study \\
+18:28 & \code{diagnostics\_ocm\_stage1} & occlusion-mask stage-1 study \\
+19:03 & \code{diagnostics\_solution\_study} & 8-patch full-resolution baseline metric table \\
+19:16 & \code{diagnostics\_five\_coverage\_stack} & the corrected 5-panel coverage figure (verified) \\
+19:43 & \code{diagnostics\_synthetic\_haze\_v2} & training-only synthetic-corruption feasibility \\
+19:50 & \code{diagnostics\_project\_review} & consolidated read-only review \\
+\hline
+\end{tabular}
+\end{center}
+
+Two results from this phase matter downstream.
+
+\paragraph{The corrected five-coverage figure is trustworthy.} Its five displayed PSNRs were
+independently recomputed at full resolution with the epoch-30 EMA and matched to within 0.01~dB;
+the mask polarity (cloud-positive) and Eq.~\eqref{eq:blend} were both confirmed:
+
+\begin{center}
+\begin{tabular}{@{}lrrrr@{}}
+\hline
+Sample & Coverage & Input & Raw & Blend \\
+\hline
+\code{s2\_65\_p88} & 2.44\% & 35.37 & 37.40 & 35.38 \\
+\code{s2\_3\_p632} & 12.55\% & 23.98 & 32.62 & 29.85 \\
+\code{s2\_40\_p476} & 34.99\% & 14.45 & 28.42 & 27.33 \\
+\code{s2\_40\_p368} & 62.47\% & 11.66 & 34.57 & 27.31 \\
+\code{s2\_3\_p680} & 87.26\% & 10.88 & 29.14 & 28.20 \\
+\hline
+\end{tabular}
+\end{center}
+
+\paragraph{Synthetic haze is not yet usable.} Ninety-six deterministic training recipient/donor
+pairs were generated. The donor-mask veil matched the failure PSNRs but its standard-deviation
+ratios (2.88/4.20/5.67/1.52) fell short of the real failures (3.60--6.27) and its residual-gradient
+ratios were \emph{lower} in every band; the donor-residual overlay produced standard-deviation
+ratios near 8--15 and 77 of 96 candidates out of $[0,1]$. Neither is physically admissible for
+training, so no augmentation pilot was launched.
+
+% ---------------------------------------------------------------------
+\section{The gradient-preservation pilot (running)}
+\label{sec:pilot}
+% ---------------------------------------------------------------------
+
+Everything in this section is confined to \code{experiments/ecrformer\_gradient\_pilot/}. The
+baseline directories are never written to.
+
+\subsection{Pre-flight and safety}
+
+\begin{itemize}
+\item Pre-change \code{git status} recorded to \code{backups/pre\_change/preflight.txt}. Most
+project sources are untracked, including \code{train\_ecrformer.py} itself, so Git cannot restore
+them; a byte copy was therefore taken to
+\code{backups/pre\_change/train\_ecrformer.py}. \code{git reset --hard}, \code{git clean},
+\code{git checkout --} and \code{git restore} were never run.
+\item New CLI flags: \code{--lambda\_gradient}, \code{--init\_from\_ema}, \code{--experiment\_dir}.
+A positive \code{--lambda\_gradient} is rejected unless it is paired with \code{--init\_from\_ema}
+and \code{--experiment\_dir}, and run names containing path traversal are rejected.
+\item A fresh run is initialised from the epoch-30 EMA with a \emph{fresh} optimiser and scheduler:
+no optimiser or scheduler state is loaded, and \code{--resume} is never used.
+\end{itemize}
+
+\subsection{Test-first evidence}
+
+\begin{lstlisting}
+python -m pytest tests/test_ecrformer_gradient_pilot.py \
+  tests/test_resume_reference_schedule.py \
+  tests/test_blend_and_scheduler_fixes.py \
+  tests/test_final_checks.py -q
+# -> 35 passed
+\end{lstlisting}
+
+RED was observed first (missing module, then a genuine \code{IndexError} in the gradient helper
+for 3-dimensional tensors). Coverage includes: zero weight leaves \code{loss\_total} bit-identical
+to the existing criterion and preserves \code{loss\_main}/\code{loss\_enc\_aux}/\code{loss\_dec\_aux};
+non-zero weight adds exactly $\lambda\mathcal{L}_{grad}$; the EMA loader consumes
+\code{ema\_state\_dict} and leaves optimiser/scheduler fresh; unsafe option combinations are
+rejected.
+
+Two pre-existing defects were fixed in the course of this: \code{tests/test\_final\_checks.py}
+still constructed the model with removed keywords (\code{residual\_blend}, \code{zero\_init\_final})
+and asserted a residual-additive blend that the code no longer implements; and a stray \code{\%}
+in the \code{--sdfl\_mode} help string made \code{--help} raise
+\code{ValueError: unsupported format character}.
+
+\subsection{Baseline reference (8 fixed validation patches, full $256\times256$)}
+
+\begin{center}
+\begin{tabular}{@{}lrrrrrr@{}}
+\hline
+Sample & Mask \% & Raw PSNR & Blend PSNR & Raw SSIM & grad-L1 & grad-energy \\
+\hline
+\code{s2\_119\_p208} & 0.0 & 24.94 & 10.76 & 0.8000 & 0.014969 & 0.322 \\
+\code{s2\_119\_p236} & 0.9 & 22.79 & 10.63 & 0.7424 & 0.019154 & 0.263 \\
+\code{s2\_119\_p92}  & 0.0 & 27.87 & 13.61 & 0.8668 & 0.011594 & 0.477 \\
+\code{s2\_40\_p268}  & 5.6 & 28.20 & 28.37 & 0.9411 & 0.010552 & 0.639 \\
+\code{s2\_65\_p328}  & 0.0 & 27.46 & 31.14 & 0.9358 & 0.011697 & 0.768 \\
+\code{s2\_65\_p124}  & 0.8 & 42.85 & 41.39 & 0.9842 & 0.004855 & 0.846 \\
+\code{s2\_119\_p100} & 100.0 & 26.51 & 26.51 & 0.9037 & 0.010812 & 0.640 \\
+\code{s2\_65\_p336}  & 89.3 & 34.43 & 34.25 & 0.9542 & 0.007739 & 0.902 \\
+\hline
+\textbf{mean} & & \textbf{29.38} & \textbf{24.58} & \textbf{0.8910} & \textbf{0.011421} & \textbf{0.607} \\
+\hline
+\end{tabular}
+\end{center}
+
+Artefacts: \code{baseline\_reference/per\_patch\_metrics.csv}, \code{manifest.json},
+\code{predictions/*.npz}.
+
+\subsection{Setup gate}
+
+\code{verify\_setup.py} $\rightarrow$ \code{PASS\_SETUP\_GATE}:
+\code{baseline\_epoch=30}, \code{ema\_tensor\_match=True}, \code{fresh\_ema\_match=True},
+\code{fresh\_optimizer=True}, \code{fresh\_scheduler=True},
+\code{experiment\_paths\_isolated=True}, \code{test\_scene\_accessed=False},
+smoke pass finite and inference-only.
+
+\subsection{Run configuration}
+
+\begin{lstlisting}
+python train_ecrformer.py \
+  --init_from_ema checkpoints/ecrformer_light_128_50ep/best_model.pth \
+  --experiment_dir experiments/ecrformer_gradient_pilot \
+  --run_name gradloss_3ep \
+  --lambda_gradient 0.07943353602356962 \
+  --epochs 3 --micro_batch_size 4 --accum_steps 4 \
+  --lr 1.447417e-4 --min_lr 1e-5 --crop_size 128 \
+  --sar_norm paper_exact --sdfl_mode official_repo \
+  --total_loss_form repo_convex \
+  --lambda_enc 0.05 --lambda_dec 0.05 --w_main_l1 1.0 --w_main_ssim 0.0 \
+  --num_refine 0 --precision fp32 --num_workers 0 --select_metric raw
+\end{lstlisting}
+
+Effective batch size 16; fresh \code{CosineAnnealingLR(T\_max=3, eta\_min=1e-5)}; started at the
+documented epoch-30 effective LR $1.447417\times10^{-4}$.
+
+\subsection{Live status (2026-10-15)}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\hline
+Item & Value \\
+\hline
+Launched & 08:53 IST, detached (\code{run\_gradloss\_3ep.bat}) \\
+Epoch 1 & complete 09:29; LR $1.447417\times10^{-4}$ for all 389 recorded updates \\
+Epoch 2 & in progress; LR stepped to $1.110563\times10^{-4}$ as the cosine schedule requires \\
+Epoch duration & $\approx 29$--36 min (33{,}468 patches, batch 4, crop 128) \\
+GPU & RTX 5070, $\approx$7.6~GB of 12.2~GB resident \\
+Checkpoints & \code{checkpoints/gradloss\_3ep/\{best,latest\}\_model.pth} (58.4~MB each) \\
+LR trace & \code{outputs/gradloss\_3ep/optimizer\_lr\_trace.csv} \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{Pre-declared success gates}
+
+\begin{enumerate}
+\item Both \code{s2\_119\_p208} and \code{s2\_119\_p236} improve target-relative gradient error
+      \emph{and} move gradient-energy ratio toward 1.
+\item None of the four critical samples (\code{p208}, \code{p236}, \code{p92}, \code{p40\_p268})
+      loses more than $0.5$~dB raw PSNR.
+\item Cohort mean raw PSNR regresses by no more than $0.1$~dB.
+\item Proposed non-inferiority margins: cohort mean SSIM drop $\le 0.005$; cohort mean MAE rise
+      $\le 0.001$; absolute per-band mean-bias increase $\le 0.005$; out-of-$[0,1]$ fraction does
+      not rise by more than $0.1$ percentage point.
+\item All losses, gradients and outputs finite; no invented edges or amplified noise in the saved
+      comparisons.
+\end{enumerate}
+
+These thresholds are taken from the plan authored before the run, but the numeric margins in
+gate 4 were never separately confirmed by the user, and \code{REPORT.md} was written immediately
+\emph{after} launch. Both facts are recorded rather than glossed.
+
+Failure of any gate means FAILED: keep the logs and metrics, do not promote the checkpoint, and
+proceed to rollback verification. A pass is a screening result only --- it does not replace the
+baseline and it claims no statistical significance.
+
+An additional gate follows from Section~\ref{sec:limits}: if \code{p208}/\code{p236} are
+mis-paired samples in the cache, gate 1 tests the cache rather than the loss. That pairing check
+has not been performed.
+
+% ---------------------------------------------------------------------
+\section{Measured limitations of the current baseline}
+\label{sec:limits}
+% ---------------------------------------------------------------------
+
+\subsection{Systematic over-smoothing}
+
+Across twelve full $256\times256$ patches the raw prediction retains only
+$23$--$68\%$ of the target's high-frequency energy (cohort mean $0.607$), the regression slope is
+$0.48$--$0.72$, and per-band standard-deviation ratios fall as low as $0.156$ (red band,
+\code{s2\_119\_p208}). On that patch the \emph{overall} standard-deviation ratio is $0.765$ while
+the gradient ratio is $0.274$: the output has roughly the right low-frequency content and almost no
+structure. Increasing the evaluation area from $128^2$ to $256^2$ bought no sharpness at all.
+
+\subsection{The objective has no sharpness incentive}
+
+L1 plus SSIM on absolute reflectance is minimised by a conditional mean. For a multi-modal problem
+the conditional mean is blurry by construction, and the multi-scale auxiliary terms inherit the
+same property. The \code{mean\_prior} head initialisation starts the network at a constant
+clear-scene image, which reinforces the bias. Nothing in the original objective ever rewarded an
+edge. This is the hypothesis the pilot tests and the only thing it changes.
+
+\subsection{PSNR conceals the defect}
+
+Cohort mean raw PSNR is $29.38$~dB. The most flattering numbers occur precisely where the output is
+flattest: \code{p56} reports $44.09$~dB at $100\%$ coverage, and \code{p208} jumps from $10.76$ to
+$24.94$~dB while sitting at the bottom of the sharpness ranking ($0.274$).
+
+\subsection{The cloud mask is unreliable in both directions}
+
+\begin{center}
+\begin{tabular}{@{}lrr@{}}
+\hline
+Sample & Input PSNR & Mask coverage \\
+\hline
+\code{s2\_134\_p56}   & 8.40 & 100.0\% \\
+\code{s2\_3\_p680}    & 10.88 & 87.3\% \\
+\code{s2\_119\_p208}  & \textbf{10.76} & \textbf{0.0\%} \\
+\code{s2\_119\_p236}  & \textbf{10.63} & \textbf{0.9\%} \\
+\code{s2\_119\_p100}  & 23.45 & 100.0\% \\
+\code{s2\_119\_p264}  & 23.03 & 5.4\% \\
+\hline
+\end{tabular}
+\end{center}
+
+\code{p208} is as degraded as \code{p56} and \code{p680} yet its mask declares the patch entirely
+clear; \code{p100} is barely degraded and its mask claims total cover. The cache's own \code{cf}
+field agrees with the mask ($0.0012$ for \code{p208}), so two independent cloud measures are
+contradicted by the radiometry of the same patch. Consequences: Eq.~\eqref{eq:blend} returns the
+cloudy input on \code{p208}/\code{p236}, discarding $12$--$14$~dB of the network's own improvement
+(blend $10.76$ versus raw $24.94$), and the pilot's gate 1 is anchored on exactly these samples.
+
+\subsection{Temporal confounding}
+
+SEN12MS-CR-TS pairs a cloudy date with a \emph{different} clear date. A patch with an empty mask and
+poor input PSNR may be poor because of seasonal or land-cover change rather than cloud, and the
+network can gain PSNR there by predicting the terrain prior. That is a plausible reading of the
+flat, low-gradient outputs on \code{p208}/\code{p236}. The evaluation does not currently separate
+the two effects, which weakens any claim about cloud removal specifically.
+
+\subsection{Two incompatible metric families}
+
+Training validation is $128\times128$ centre-cropped, mask-restricted and (historically)
+blend-selected. The diagnostics are $256\times256$, all-pixel and raw. Differences reach $2.3$~dB
+with mixed sign, so the two families cannot be merged or directly compared. The preserved
+checkpoint's stored \code{psnr} of $30.1982$ is blended and its selection key is missing, while the
+current default is raw --- a silent change of meaning.
+
+\subsection{State that cannot be resumed}
+
+Neither preserved checkpoint stores \code{scheduler\_state\_dict}, so the schedule position is
+unknowable; a plain resume keeps the saved LR, and a correct resume would need the original
+\code{epochs}, \code{lr} and \code{min\_lr}, which were not recorded. \code{--resume} loads the
+\emph{latest} checkpoint together with its optimiser state and therefore cannot start a fresh run
+from the epoch-30 EMA --- the gap that motivated the new \code{--init\_from\_ema} path.
+
+\subsection{Unusable synthetic augmentation}
+
+See the end of Section~7: neither donor-mask veil nor donor-residual overlay reproduces the
+statistics of the real failure patches, and the latter violates reflectance bounds on $80\%$ of
+candidates.
+
+\subsection{Engineering debt}
+
+\begin{itemize}
+\item Most sources, including \code{train\_ecrformer.py} and \code{data/cache\_dataset.py}, are
+      untracked in Git; there is no repository-level rollback path, only manual backups.
+\item The cache lives in a sibling project directory with no version pin.
+\item The trainer prints with default buffering, so a redirected run log stays empty until the
+      process exits; \code{python -u} should be used.
+\item The historical $256\times256$ \emph{training} out-of-memory failure is real (activations,
+      gradients and optimiser state); inference at the same size needs only 347~MiB.
+\item No statistical significance is claimed anywhere; the 8-patch cohort is a screening set
+      chosen to include known failures, and the only genuinely held-out scene is unmeasured.
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\section{Reproducibility commands}
+% ---------------------------------------------------------------------
+
+\begin{lstlisting}
+cd "/c/Users/Windows 11 Pro/Videos/Projects/ECRformer"
+PY="C:/Users/Windows 11 Pro/AppData/Local/Programs/Python/Python312/python.exe"
+
+# focused test suite (expect 35 passed)
+"$PY" -m pytest tests/test_ecrformer_gradient_pilot.py \
+  tests/test_resume_reference_schedule.py \
+  tests/test_blend_and_scheduler_fixes.py tests/test_final_checks.py -q
+
+# measured lambda for the gradient term (train split only, inference mode)
+"$PY" experiments/ecrformer_gradient_pilot/probe_loss_scale.py
+
+# baseline reference on the 8 fixed validation patches
+"$PY" experiments/ecrformer_gradient_pilot/evaluate_pilot.py --mode baseline
+
+# setup gate before any training
+"$PY" experiments/ecrformer_gradient_pilot/verify_setup.py
+
+# score the experimental checkpoint against the baseline
+"$PY" experiments/ecrformer_gradient_pilot/evaluate_pilot.py --mode experimental \
+  --checkpoint experiments/ecrformer_gradient_pilot/checkpoints/gradloss_3ep/best_model.pth
+\end{lstlisting}
+
+Launcher for the detached run: \code{run\_gradloss\_3ep.bat}.
+
+\subsection{Rollback}
+
+\begin{lstlisting}
+cd "/c/Users/Windows 11 Pro/Videos/Projects/ECRformer"
+cp -p experiments/ecrformer_gradient_pilot/backups/pre_change/train_ecrformer.py train_ecrformer.py
+sha256sum train_ecrformer.py \
+  experiments/ecrformer_gradient_pilot/backups/pre_change/train_ecrformer.py
+\end{lstlisting}
+
+Optionally remove only the newly added code and test files; never the experiment directory, the
+baseline reference, the report, the logs or the cache. If the pilot fails, move only
+\code{checkpoints/gradloss\_3ep/} to \code{failed\_artifacts/}. Never delete the baseline or any
+earlier diagnostic.
+
+% ---------------------------------------------------------------------
+\section{Artefact map}
+% ---------------------------------------------------------------------
+
+\begin{center}
+\begin{tabular}{@{}lp{9.3cm}@{}}
+\hline
+Path & Contents \\
+\hline
+\code{data/cache\_dataset.py} & cached SEN12MS-CR loader, SAR normalisation, mask refinement, cropping \\
+\code{models/ecrformer\_adapted.py} & task adapter: stems, heads, Eq.~\eqref{eq:blend} \\
+\code{models/ecrformer\_model.py} & upstream ECRformer backbone (XCA, MDWA, TSA, CBAM) \\
+\code{losses/sdfl\_loss.py} & SDFL objective of Section~4 \\
+\code{train\_ecrformer.py} & training loop, validation, EMA, checkpointing, LR trace \\
+\code{tests/} & scheduler-resume, blend, SAR-normalisation and pilot tests \\
+\code{checkpoints/ecrformer\_light\_128\_50ep/} & \textbf{protected baseline} (epoch 30 EMA) \\
+\code{pretrained/} & upstream \code{full.ckpt}, \code{light.ckpt} \\
+\code{diagnostics\_*/} & seventeen read-only diagnostic workstreams (Section~7) \\
+\code{experiments/ecrformer\_gradient\_pilot/} & current pilot: code, probes, gates, report, logs \\
+\code{docs/ecrformer\_pipeline.tex} & this document \\
+\hline
+\end{tabular}
+\end{center}
+
+% ---------------------------------------------------------------------
+\section{Open items}
+% ---------------------------------------------------------------------
+
+\begin{enumerate}
+\item Score the pilot against the pre-declared gates once epochs 2 and 3 finish, and fill in the
+      experimental results section of \code{REPORT.md}.
+\item Verify whether \code{s2\_119\_p208} and \code{s2\_119\_p236} are correctly paired and
+      masked in the cache against the upstream SEN12MS-CR-TS tiles. This decides whether the
+      observed defects are data or model, and whether gate 1 is meaningful.
+\item Decide the reporting convention: raw all-pixel at full resolution, or masked crop, or both
+      stated explicitly --- the two families must never be merged.
+\item Decide whether the mask defect is worth fixing before further training, since it currently
+      determines whether the blended product is usable at all.
+\item Record the selection metric and scheduler state in every future checkpoint so that a run is
+      resumable without guesswork.
+\end{enumerate}
+
+\vfill
+\noindent\rule{\textwidth}{0.3pt}\\
+\footnotesize
+Every numeric value in this document was produced by a script in the repository. Values absent
+from the preserved artefacts --- the baseline run's loss weights, its selection metric, and the
+scheduler position of the legacy checkpoints --- are marked as unrecorded rather than inferred.
+The held-out scene \code{s2\_139} was not accessed at any point described here.
+
+\end{document}

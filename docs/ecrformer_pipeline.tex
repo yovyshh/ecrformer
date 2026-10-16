@@ -1,0 +1,592 @@
+% =====================================================================
+%  Cloud removal from satellite images - plain-language guide
+%  Companion to ecrformer_pipeline_technical.tex
+%  Compile with: pdflatex ecrformer_pipeline.tex   (run twice)
+% =====================================================================
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{array}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage[hidelinks]{hyperref}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  framerule=0.3pt,
+  rulecolor=\color{gray!50},
+  backgroundcolor=\color{gray!8},
+  showstringspaces=false,
+  language=bash
+}
+
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\term}[1]{\textbf{#1}}
+
+\title{\textbf{Removing Clouds from Satellite Photos}\\[0.3em]
+\large A Plain-Language Guide:\\What We Built, What We Measured, and What Is Going Wrong\\[0.2em]
+\normalsize Written 2026-10-15}
+\author{Vaishnav (yovyshh)}
+\date{2026-10-15}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+Satellite photos of the ground are often ruined by clouds. We built a computer program that tries
+to paint over the clouds and show what was underneath. This document explains --- in everyday
+language, without assuming you know any machine learning --- what the program is, what data it
+learns from, how well it is doing, and the real problems we have found with it. Every number in
+here came from a script we actually ran. Where a number is unknown, we say so instead of guessing.
+
+A technical version of the same material, with the full mathematics, is in
+\code{ecrformer\_pipeline\_technical.tex}.
+\end{abstract}
+
+\tableofcontents
+
+% =====================================================================
+\section{The problem, in one paragraph}
+% =====================================================================
+
+Imagine you photograph a field. A big cloud drifts over it and your photo is mostly grey fluff.
+You cannot wait for another day, because the crops change, the season changes, and the cloud may
+come back.
+
+But you have a second camera that is not bothered by clouds at all: a \term{radar}. Radar sends out
+its own radio waves and listens for the echo, the way a bat does. It works at night, in fog, and
+right through cloud. The catch is that radar pictures are grey, grainy and hard for a human to read
+--- no colour, no nice texture.
+
+So the plan is: feed a computer (a) the cloudy colour photo, (b) the radar picture of the same
+spot, and (c) a \term{stencil} that marks which pixels are cloudy. Ask it to paint the missing
+parts. That is the whole job. The program we are working with is called \term{ECRformer}.
+
+% =====================================================================
+\section{The data we learn from}
+% =====================================================================
+
+We do not have perfect answers to copy, so we use pairs of images of the same piece of land taken
+on different days: one cloudy, one clear. The clear one is the ``answer sheet'' the computer is
+marked against.
+
+\begin{center}
+\begin{tabular}{@{}lp{9.5cm}@{}}
+\hline
+\textbf{Thing} & \textbf{What it means} \\
+\hline
+Training pairs & 33{,}468 image pairs used for learning \\
+Validation pairs & 1{,}115 pairs used for testing during development \\
+Final exam pairs & a whole scene kept locked away and never touched \\
+Patch size & $256 \times 256$ pixels (a small square of land) \\
+Colour channels & 4: red, green, blue, and near-infrared \\
+Radar channels & 2: called VV and VH (two ways of listening to the echo) \\
+Cloud stencil & 1 more channel, marking cloud \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{What ``one image'' actually looks like inside the computer}
+
+This is where matrices come in. A single colour patch is \textbf{not} one picture --- it is
+\textbf{four grids of numbers}, one per channel, each grid $256 \times 256$. Every number is a
+brightness between 0 and 1 (0 = black, 1 = brightest). The fourth grid, near-infrared, is invisible
+to your eye but very useful for telling plants from bare ground.
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\hline
+Grid & Size & Meaning \\
+\hline
+Red & $256 \times 256$ & how much red light bounced back, per pixel \\
+Green & $256 \times 256$ & how much green light \\
+Blue & $256 \times 256$ & how much blue light \\
+Near-infrared & $256 \times 256$ & invisible to us, but good for plants \\
+Radar VV & $256 \times 256$ & echo strength, one listening mode \\
+Radar VH & $256 \times 256$ & echo strength, other listening mode \\
+Cloud stencil & $256 \times 256$ & 0 = clear sky here, 1 = cloud here \\
+\hline
+\end{tabular}
+\end{center}
+
+So the computer receives seven grids at once and must produce four grids back (the repaired red,
+green, blue and near-infrared). Keeping the four grids \emph{pixel-aligned} matters: the 500th
+pixel of the red grid must describe the same 500th spot on the ground as the 500th pixel of the
+radar grid. The data was prepared that way in advance, so we do not have to fix it.
+
+% =====================================================================
+\section{How we prepare each image before the model sees it}
+% =====================================================================
+
+Three simple jobs, done on the fly every time an image is loaded.
+
+\paragraph{1. Putting the radar on a friendly scale.}
+Raw radar echo values are stored in a unit called decibels and run from about $-37$ up to $0$. The
+program does not like negative numbers much, so we squeeze them into the range 0 to 1 with a simple
+rule: anything below the weakest useful echo counts as 0, anything at the strongest counts as 1, and
+everything else is spread evenly in between. This is just a change of units, like converting
+Celsius to Fahrenheit --- no information is created or destroyed.
+
+\paragraph{2. Tidying up the cloud stencil.}
+The raw stencil is noisy: scattered single pixels claim to be cloud. We clean it in three steps.
+
+\begin{center}
+\begin{tabular}{@{}llp{6.6cm}@{}}
+\hline
+Step & Action & Why \\
+\hline
+1 & average each $9\times9$ neighbourhood and round it to clear or cloud & removes speckle --- one odd pixel no longer claims to be a cloud \\
+2 & grow the cloud region outward by 2 pixels & clouds have soft edges; this catches the fuzzy fringe \\
+3 & blur the edges & so the computer gets a soft transition instead of a hard cut-out \\
+\hline
+\end{tabular}
+\end{center}
+
+\paragraph{3. Choosing how much to look at.}
+During learning we cut a $128 \times 128$ window out of each patch (always at a random spot, so the
+model sees variety). When we test, we use the centre window so every run sees exactly the same
+thing. For the final picture quality checks we use the whole $256 \times 256$ patch with nothing cut
+off. Section~\ref{sec:ruler} explains why mixing those up caused us trouble.
+
+% =====================================================================
+\section{How the model works, in plain words}
+% =====================================================================
+
+\subsection{The shape of the machine}
+
+Think of it as a factory with three stages.
+
+\begin{enumerate}
+\item \textbf{Two front doors.} One door takes the radar picture; the other takes the colour photo
+      plus the cloud stencil. Radar and colour are very different kinds of evidence, so they are not
+      mashed together immediately --- each gets its own entrance.
+\item \textbf{A committee of pattern-finders.} Behind the doors sits a stack of four stages that
+      look for patterns, from small (an edge of a roof) to large (a whole field). The mechanism is
+      called a \term{transformer}; practically, it means the machine compares every part of the
+      image with every other part and decides what belongs together. Our version is the
+      ``light'' one --- deliberately small so it can run on one modest graphics card.
+\item \textbf{One painter.} The last stage paints four grids of numbers: the repaired red, green,
+      blue and near-infrared. Alongside the main painter there are six small helper painters, three
+      belonging to the middle of the factory and three to the end. They are not the final answer;
+      they exist so that mistakes can be corrected early rather than only at the very end, the same
+      way a maths teacher marks your working, not just your final answer.
+\end{enumerate}
+
+\subsection{Why the painter starts with a grey-green blank canvas}
+
+Before training begins, the painter is initialised so that it outputs the \emph{average} colour of
+clear land: roughly red $0.085$, green $0.092$, blue $0.113$, near-infrared $0.188$. Asked to paint
+nothing in particular, it paints a flat average landscape.
+
+\begin{center}
+\begin{tabular}{@{}lllll@{}}
+\hline
+Band & Red & Green & Blue & Near-infrared \\
+\hline
+Starting value & 0.0847 & 0.0919 & 0.1127 & 0.1884 \\
+\hline
+\end{tabular}
+\end{center}
+
+This is a sensible trick --- it means the machine starts from a plausible guess instead of random
+noise, so it learns faster. But it also plants the seed of our biggest problem
+(Section~\ref{sec:wrong}). A painter trained to start from ``the average of everything'' tends to
+return to averages when it is unsure.
+
+\subsection{Two different products come out}
+
+This distinction matters more than any other single thing in this document.
+
+\begin{center}
+\begin{tabular}{@{}lp{9.4cm}@{}}
+\hline
+\textbf{Name} & \textbf{What it is} \\
+\hline
+\term{RAW} (\code{pred\_direct}) & the painter's picture, used as-is, everywhere \\
+\term{BLEND} & the painter's picture used \emph{only inside the cloud stencil}; outside the stencil, the original cloudy photo is kept untouched \\
+\hline
+\end{tabular}
+\end{center}
+
+The blend rule in words: \emph{``where there is no cloud, show the original photo unchanged; where
+there is cloud, show the painter's picture.''} In symbols, with $M$ the stencil (0 clear, 1 cloud),
+$S2_c$ the cloudy photo and $P$ the painter's picture:
+
+\begin{equation}
+\hat Y = (1-M)\,S2_c \;+\; M\,P
+\end{equation}
+
+Read it as: when $M=1$ (cloud) the left term vanishes and you get $P$; when $M=0$ (clear) the right
+term vanishes and you get $S2_c$.
+
+The blend sounds safer, and in one narrow way it is: it \emph{guarantees} clear ground is never
+disturbed. But it is not a claim about accuracy --- if the stencil is wrong, the blend faithfully
+reproduces the clouds you were trying to remove. We measured this happening
+(Section~\ref{sec:wrong}).
+
+% =====================================================================
+\section{How we score the results}
+% =====================================================================
+
+Four scores matter. Here they are without jargon.
+
+\begin{center}
+\begin{tabular}{@{}lp{4.2cm}p{6.0cm}@{}}
+\hline
+\textbf{Score} & \textbf{Range} & \textbf{What it really tells you} \\
+\hline
+PSNR & decibels, higher is better & Overall closeness to the answer sheet. Rough guide: above 30 is respectable, 20 is poor. \textbf{Warning:} it is an average, so painting a smooth blurry smear can score well. \\
+SSIM & 0 to 1, 1 is perfect & Do the shapes and patterns match? 0.89 means the layout is broadly right. \\
+L1 / MAE & 0 to 1, lower is better & On average, how far off is each pixel's brightness? 0.02 means about 2\% off. \\
+\term{Gradient} or detail ratio & 1.0 is perfect & \textbf{The one that catches blur.} See the analogy below. \\
+Cloud coverage & 0 to 100\% & How much of this patch the stencil marks as cloudy. \\
+\hline
+\end{tabular}
+\end{center}
+
+\paragraph{The detail ratio, explained by analogy.}
+Take a photo of a grassy field and blur it heavily. The averaged colour hardly changes --- the field
+is still green, roughly the same shade. What you destroyed is the \emph{texture}: the individual
+blades, the flecks of light, the fine edges. PSNR will barely notice. The detail ratio is designed
+to notice: it compares how much fine detail (pixel-to-pixel change) exists in the picture versus in
+the answer sheet.
+
+\begin{itemize}
+\item ratio $= 1.0$: the texture is fully preserved;
+\item ratio $= 0.6$: only 60\% of the fine detail survives --- the picture is noticeably soft;
+\item ratio $= 0.25$: three-quarters of the texture is gone --- it looks like a watercolour.
+\end{itemize}
+
+We also report \term{NDVI}, which detects vegetation health, because a cloud-removal method that
+wrecks the vegetation signal is not useful to an agronomist even if its PSNR looks fine.
+
+% =====================================================================
+\section{Where the model stands today}
+% =====================================================================
+
+All numbers below come from the saved baseline --- the best version of the model we had before this
+week's experiment, frozen and backed up.
+
+\subsection{Eight carefully chosen test patches, examined at full size}
+
+\begin{center}
+\begin{tabular}{@{}lrrrrr@{}}
+\hline
+Patch & Cloudy \% & Raw PSNR & Blend PSNR & SSIM & Detail ratio \\
+\hline
+\code{s2\_119\_p208} & 0.0 & 24.94 & 10.76 & 0.80 & \textbf{0.32} \\
+\code{s2\_119\_p236} & 0.9 & 22.79 & 10.63 & 0.74 & \textbf{0.26} \\
+\code{s2\_119\_p92}  & 0.0 & 27.87 & 13.61 & 0.87 & 0.48 \\
+\code{s2\_40\_p268}  & 5.6 & 28.20 & 28.37 & 0.94 & 0.64 \\
+\code{s2\_65\_p328}  & 0.0 & 27.46 & 31.14 & 0.94 & 0.77 \\
+\code{s2\_65\_p124}  & 0.8 & 42.85 & 41.39 & 0.98 & 0.85 \\
+\code{s2\_119\_p100} & 100.0 & 26.51 & 26.51 & 0.90 & 0.64 \\
+\code{s2\_65\_p336}  & 89.3 & 34.43 & 34.25 & 0.95 & 0.90 \\
+\hline
+\textbf{Average} & & \textbf{29.38} & \textbf{24.58} & \textbf{0.89} & \textbf{0.61} \\
+\hline
+\end{tabular}
+\end{center}
+
+Read the average detail ratio: \textbf{0.61}. The model keeps about sixty per cent of the fine
+detail. That is the headline finding of this whole body of work.
+
+\subsection{Twelve patches, sorted by how much detail survived}
+
+\begin{center}
+\begin{tabular}{@{}lrr@{}}
+\hline
+Patch & Cloudy \% & Detail kept \\
+\hline
+\code{s2\_119\_p264} & 5.4 & 0.68 \\
+\code{s2\_134\_p484} & 50.2 & 0.68 \\
+\code{s2\_119\_p100} & 100.0 & 0.66 \\
+\code{s2\_119\_p208} & 0.0 & 0.27 \\
+\code{s2\_119\_p236} & 0.9 & 0.23 \\
+\hline
+\end{tabular}
+\end{center}
+
+The pattern is uncomfortable: the worst detail retention is on the patches with the \emph{least}
+cloud. Those are the patches where the model has almost nothing to remove --- and it flattens the
+genuinely clear ground anyway.
+
+\subsection{Sanity check on an earlier picture we published}
+
+Five patches from a comparison figure were re-measured independently. All five numbers reproduced to
+within 0.01 dB, so that figure can be trusted.
+
+\begin{center}
+\begin{tabular}{@{}lrrrr@{}}
+\hline
+Patch & Cloudy \% & Cloudy photo & Raw & Blend \\
+\hline
+\code{s2\_65\_p88} & 2.4 & 35.37 & 37.40 & 35.38 \\
+\code{s2\_3\_p632} & 12.6 & 23.98 & 32.62 & 29.85 \\
+\code{s2\_40\_p476} & 35.0 & 14.45 & 28.42 & 27.33 \\
+\code{s2\_40\_p368} & 62.5 & 11.66 & 34.57 & 27.31 \\
+\code{s2\_3\_p680} & 87.3 & 10.88 & 29.14 & 28.20 \\
+\hline
+\end{tabular}
+\end{center}
+
+% =====================================================================
+\section{What is going wrong}
+\label{sec:wrong}
+% =====================================================================
+
+\subsection{1. The model paints in soft watercolour}
+
+This is the root problem and everything else is downstream of it. The model keeps about 61\% of the
+fine detail, and on the hardest patches as little as 23\%. In plain terms: the clouds disappear, the
+colours are roughly right, and the picture is soft and slightly plastic.
+
+Why? Because of what we ask it to do. The training rule says: \emph{be close to the answer sheet on
+average}. When several different answers are plausible for a pixel --- a field could be grass, or
+the same field a month later --- and you are rewarded for being close on average, the safest answer
+is the \emph{middle} of the plausible options. The middle of ``grass'' and ``ploughed field'' is a
+featureless brown. Survival by averaging is the same reason a committee-written report reads
+blandly: nobody's sharp opinion survives the averaging.
+
+Nothing in the original training rule ever gave the model a point for a crisp edge.
+
+\subsection{2. The headline score hides the problem}
+
+The average PSNR is a respectable 29.38 dB. The most impressive-looking numbers sit exactly where
+the picture is flattest. Patch \code{p56} reports a spectacular 44.09 dB, and \code{p208} jumps
+from 10.76 dB to 24.94 dB --- yet \code{p208} is the second-worst patch of the whole set for detail
+retention (0.27). A blurry watercolour can win this exam. If we report only PSNR, we are reporting
+the flattering half of the story.
+
+\subsection{3. The cloud stencil is sometimes plainly wrong}
+
+This is the most surprising finding, and it has real consequences. Two patches tell the story.
+
+\begin{center}
+\begin{tabular}{@{}lrr@{}}
+\hline
+Patch & How bad the cloudy photo is & What the stencil claims \\
+\hline
+\code{s2\_134\_p56} & 8.40 dB (badly clouded) & 100\% cloud \\
+\code{s2\_3\_p680} & 10.88 dB (badly clouded) & 87\% cloud \\
+\code{s2\_119\_p208} & \textbf{10.76 dB (badly clouded)} & \textbf{0\% cloud} \\
+\code{s2\_119\_p236} & \textbf{10.63 dB (badly clouded)} & \textbf{0.9\% cloud} \\
+\code{s2\_119\_p100} & 23.45 dB (mildly affected) & 100\% cloud \\
+\hline
+\end{tabular}
+\end{center}
+
+\code{p208} is exactly as cloudy as \code{p680}, yet the stencil says there is no cloud at all. The
+second cloud measurement stored alongside it agrees with the stencil, so this is not a display
+glitch --- two independent cloud measures are both contradicted by what the pixels actually look
+like.
+
+The practical damage: because the stencil says ``no cloud here'', the blend rule returns the
+original cloudy photo on those patches. The model had actually improved them by 12 to 14 dB, and the
+blend throws that improvement away. It also means any conclusion we draw about ``the hard patches''
+is a conclusion about a possibly broken stencil, not about the model.
+
+\subsection{4. The answer sheet was photographed on a different day}
+
+Our clear reference images are of the same place but \emph{not the same moment} --- they come from
+another date. So if the land changed in between (crops harvested, fields flooded, season turned),
+the difference between the cloudy photo and the ``answer'' is partly \emph{real change}, not cloud.
+
+This matters because the model can score well on such a patch without removing any cloud at all ---
+it just paints the typical look of that kind of terrain. That is a very plausible explanation for
+the patches where detail retention is worst (0.23--0.27) while PSNR looks decent. It also means our
+current scoring cannot fully separate ``removed the cloud'' from ``guessed the season''.
+
+\subsection{5. We have been using two different rulers}
+\label{sec:ruler}
+
+Numbers measured on a $128 \times 128$ centre window, counting only the cloudy pixels, are not
+comparable to numbers measured on the whole $256 \times 256$ patch counting every pixel. The two
+differ by up to 2.3 dB and sometimes in opposite directions. Mixing them --- or quoting one and
+comparing it to the other --- would be a genuine error. We now keep the two families of numbers
+strictly apart and say which ruler is in use.
+
+There is a second wrinkle: the saved best model stores a score of 30.1982 that was measured under
+the \emph{blended} definition, and the record does not say so. Our current default is the RAW
+definition. The same field can look better or worse purely because the definition silently changed.
+
+\subsection{6. We cannot cleanly restart the previous training run}
+
+The saved training state does not include the learning-rate schedule's position. Without it, a
+restart would silently use the wrong learning rate and quietly waste days of computation. We also
+found that the saved ``best'' model is from epoch 30 while a later file sits at epoch 32 --- so
+training continued past the best point without improving, and nothing recorded why it stopped. In
+practice the project is pinned at the frozen epoch-30 model, and the sensible way forward is a fresh
+run that starts \emph{from} it rather than a continuation of the old one.
+
+\subsection{7. Our fake clouds did not look like real clouds}
+
+One idea was to make training harder by adding artificial clouds to clear images, so the model sees
+more practice examples. We generated 96 such examples from real cloudy patches.
+
+\begin{center}
+\begin{tabular}{@{}lp{8.4cm}@{}}
+\hline
+\textbf{Attempt} & \textbf{Why we rejected it} \\
+\hline
+Copy a real cloud's shape onto a clear scene & The brightness was right but the textures came out too smooth, and in near-infrared especially it did not look like a real cloud at all. \\
+\hline
+Transfer only the difference between a cloudy and clear scene & Far too extreme: 77 of 96 examples produced impossible pixel values outside the 0--1 range, i.e.\ darker than black or brighter than white. \\
+\hline
+\end{tabular}
+\end{center}
+
+So the artificial clouds do not yet behave like the real problem, and training on them would teach
+the model to fix the wrong kind of damage. This experiment is shelved until the fakes pass physical
+sanity checks.
+
+% =====================================================================
+\section{What we are trying right now: the ``keep the edges'' penalty}
+% =====================================================================
+
+Since the core problem is that nothing ever rewarded a crisp edge, we added exactly one new rule to
+the training: \emph{punish the model whenever its picture is smoother than the answer sheet}. That
+is all. The architecture, the data, the optimiser --- everything else is unchanged, so if anything
+improves we will know precisely what caused it.
+
+In words: for every pair of neighbouring pixels, compare how much the brightness changes in the
+model's picture versus in the answer sheet, and pay a fine for the difference. The total training
+penalty becomes ``the old penalty plus a small multiple of the new one''.
+
+\subsection{How big should the fine be? We measured it instead of guessing}
+
+Too small and the new rule does nothing; too big and it ruins the picture chasing noise. Rather than
+pick a number by feel, we ran the existing model over eight batches of training images and measured
+how big the two penalties already were. We then chose the multiplier that makes the new rule
+contribute about \textbf{5\%} of the total --- big enough to matter, small enough not to take over.
+
+\begin{center}
+\begin{tabular}{@{}rrrrrr@{}}
+\hline
+Batch & Main penalty & Encoder helpers & Decoder helpers & New edge penalty & Share of total \\
+\hline
+0 & 0.0089 & 0.0851 & 0.0163 & 0.0053 & 3.2\% \\
+1 & 0.0145 & 0.1069 & 0.0214 & 0.0112 & 4.6\% \\
+2 & 0.0114 & 0.0901 & 0.0172 & 0.0094 & 4.8\% \\
+3 & 0.0081 & 0.0561 & 0.0113 & 0.0065 & 4.8\% \\
+4 & 0.0123 & 0.1351 & 0.0205 & 0.0122 & 5.2\% \\
+5 & 0.0080 & 0.0532 & 0.0117 & 0.0072 & 5.4\% \\
+6 & 0.0086 & 0.0595 & 0.0126 & 0.0092 & 6.5\% \\
+7 & 0.0113 & 0.0759 & 0.0166 & 0.0097 & 5.2\% \\
+\hline
+\end{tabular}
+\end{center}
+
+The chosen multiplier is \textbf{0.079433536}. Median share came out at exactly 5.0\%, worst case
+6.5\% --- comfortably inside the 10\% ceiling we allowed ourselves.
+
+\subsection{How we will judge whether it worked}
+
+Decided in advance, before the run, so we cannot move the goalposts afterwards.
+
+\begin{enumerate}
+\item The two problem patches (\code{p208}, \code{p236}) must both keep \emph{more} fine detail.
+\item No important patch may lose more than 0.5 dB of overall score.
+\item The average score over the eight patches may not drop by more than 0.1 dB.
+\item Secondary quality must not degrade: structure, average brightness error, colour balance and
+      impossible pixel values all stay within tight limits.
+\item No crashes, no absurd values, and no invented detail that is not really there.
+\end{enumerate}
+
+If any of these fail, the answer is ``this did not work'' and we keep the evidence and fall back to
+the frozen baseline. Even a pass would only mean ``worth investigating further'' --- three epochs is
+a short screening run, nowhere near proof.
+
+% =====================================================================
+\section{Where we are at this moment}
+% =====================================================================
+
+The three-epoch experiment is running now, started 08:53 on 2026-10-15 on a single graphics card.
+
+\begin{center}
+\begin{tabular}{@{}llrrrr@{}}
+\hline
+Epoch & Finished at & Minutes & PSNR (raw) & SSIM & L1 \\
+\hline
+1 & 09:29 & 36.0 & 30.27 & 0.8874 & 0.0199 \\
+2 & 10:04 & 35.0 & 30.25 & 0.8874 & 0.0200 \\
+3 & running & --- & --- & --- & --- \\
+\hline
+\end{tabular}
+\end{center}
+
+\begin{itemize}
+\item The learning-rate schedule behaved exactly as designed (we can see each epoch's value in a
+      log: $0.0001447$, then $0.0001111$, then $0.0000437$ --- a smooth glide down).
+\item The new edge penalty landed at \textbf{5.04\%} of the training total during the real run,
+      matching the 5\% we aimed for.
+\item Epoch 2 scored 0.02 dB \emph{lower} than epoch 1. That is a rounding-level difference and not
+      yet meaningful; the decisive test is the eight-patch comparison against the frozen baseline,
+      which runs as soon as epoch 3 ends.
+\end{itemize}
+
+\paragraph{Important caveat.} The 30.27 dB above is measured with the $128$ centre-window,
+cloudy-pixels-only ruler over 1{,}115 validation patches. The 29.38 dB baseline figure is measured
+with the whole-$256$-patch, every-pixel ruler over 8 patches. \textbf{They are not comparable.} Any
+claim of improvement must come from the same ruler on the same patches.
+
+% =====================================================================
+\section{Jargon decoder}
+% =====================================================================
+
+\begin{center}
+\begin{tabular}{@{}lp{9.6cm}@{}}
+\hline
+\textbf{Word} & \textbf{One-line meaning} \\
+\hline
+SAR / radar & The cloud-piercing instrument; grey, grainy, but works in any weather \\
+Stencil / mask & A map of which pixels are cloudy \\
+Blend & ``Keep the original where it is clear, use the painter's work where it is cloudy'' \\
+RAW prediction & The painter's picture with no blending applied \\
+PSNR & Similarity score in decibels; higher is better; averages away blur \\
+SSIM & Structure similarity, 0 to 1; do the shapes match \\
+L1 / MAE & Average brightness error; lower is better \\
+Gradient / detail ratio & How much fine texture survived, 1.0 is perfect \\
+Epoch & One full pass through all 33{,}468 training pairs \\
+Patch & A single $256\times256$ square of land \\
+Checkpoint & A saved snapshot of the model's learned settings \\
+Auxiliary loss & A helper penalty applied early in the network, not at the final output \\
+EMA & A smoothed, averaged version of the model; usually the better one to use \\
+Over-smoothing & The blurry effect this whole document is about \\
+\hline
+\end{tabular}
+\end{center}
+
+% =====================================================================
+\section{What happens next}
+% =====================================================================
+
+\begin{enumerate}
+\item Finish epoch 3 and run the eight-patch comparison against the frozen baseline; record
+      pass or fail against the five criteria above.
+\item Settle the \code{p208}/\code{p236} question: open the original upstream data and check whether
+      those two patches were paired and masked correctly. Until we know, any conclusion drawn from
+      them is unsafe --- and unfortunately they are exactly the patches criterion 1 depends on.
+\item Pick one ruler and stick to it in all reporting, so numbers can never be silently compared
+      across protocols.
+\item Decide whether fixing the cloud stencil is worth doing before further training, since it
+      currently decides whether the blended product is usable at all.
+\item Record the scoring definition and the schedule position inside every future checkpoint, so a
+      run can be resumed without guesswork.
+\end{enumerate}
+
+\vfill
+\noindent\rule{\textwidth}{0.3pt}\\
+\footnotesize
+Every number in this document was produced by a script in the project. Values that are not recorded
+anywhere --- the original run's exact penalty settings, its scoring definition, and the schedule
+position of the old checkpoints --- are stated as unknown rather than estimated. The locked-away
+final-exam scene was never opened at any point described here.
+
+\end{document}

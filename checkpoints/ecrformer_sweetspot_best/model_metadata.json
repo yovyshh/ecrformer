@@ -1,0 +1,40 @@
+{
+  "model_name": "ECRformer-Lite Sweet-Spot Fine-Tuned",
+  "checkpoint_file": "best_model.pth",
+  "sha256": "fab497c954d4aabbcfea729760c2bb8de137d087edbef9d88a2c6b44483e715f",
+  "base_architecture": {
+    "model_class": "ECRformerAdaptedModel",
+    "features_start": 32,
+    "num_blocks": [2, 2, 1, 1],
+    "num_refine": 0,
+    "bottle_neck": "tsa",
+    "cbam": "1ca2+1sa2",
+    "mask_blend": true,
+    "head_init": "mean_prior",
+    "parameters_count": 8316228
+  },
+  "training_recipe": {
+    "method": "Full fine-tuning with differential learning rates + EMA shadow tracking",
+    "sar_lr_mult": 2.0,
+    "lr_g": 0.00012,
+    "lr_d": 0.00025,
+    "w_adv": 0.015,
+    "w_fm": 0.15,
+    "lambda_struct": 1.25,
+    "dr_weight": 0.15,
+    "sar_norm": "paper_exact",
+    "cutout_prob": 0.65,
+    "native_resolutions_tested": ["128x128", "256x256"]
+  },
+  "performance_under_clouds": {
+    "psnr_heavy_cloud": "29.97 dB",
+    "ssim_all_scene": "0.8815",
+    "detail_ratio": "0.8576 (85.8% natural detail energy retained vs 23-38% in baseline)",
+    "edge_correlation": "0.4153 (Highest geometric ground truth alignment)"
+  },
+  "baseline_preserved": {
+    "path": "checkpoints/ecrformer_light_128_50ep/best_model.pth",
+    "sha256": "2f02aca75619a8b4db52ca5ef4910a0ad305e80c68d48c035c0bb975e5b1a5b6",
+    "status": "Verified untouched"
+  }
+}

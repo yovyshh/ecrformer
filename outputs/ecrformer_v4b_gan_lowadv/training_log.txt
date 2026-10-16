@@ -1,0 +1,10 @@
+Epoch 01 (6.68m) | ALL: PSNR=29.91 dB, SSIM=0.8741, Detail=0.8776, EdgeCorr=0.3798 | HEAVY: PSNR=29.97 dB, Detail=0.8576, EdgeCorr=0.4153 [NEW BEST GAN: grad_corr=0.4153, detail=0.8576]
+Epoch 02 (7.36m) | ALL: PSNR=29.92 dB, SSIM=0.8707, Detail=0.9419, EdgeCorr=0.3680 | HEAVY: PSNR=30.05 dB, Detail=0.8870, EdgeCorr=0.4072
+Epoch 03 (7.49m) | ALL: PSNR=29.83 dB, SSIM=0.8701, Detail=0.9199, EdgeCorr=0.3681 | HEAVY: PSNR=29.98 dB, Detail=0.8696, EdgeCorr=0.4080
+Epoch 04 (7.52m) | ALL: PSNR=29.82 dB, SSIM=0.8705, Detail=0.9087, EdgeCorr=0.3699 | HEAVY: PSNR=29.96 dB, Detail=0.8668, EdgeCorr=0.4110
+Epoch 05 (7.16m) | ALL: PSNR=29.86 dB, SSIM=0.8707, Detail=0.9203, EdgeCorr=0.3663 | HEAVY: PSNR=29.95 dB, Detail=0.8783, EdgeCorr=0.4054
+Epoch 06 (7.19m) | ALL: PSNR=29.88 dB, SSIM=0.8701, Detail=0.9175, EdgeCorr=0.3623 | HEAVY: PSNR=29.98 dB, Detail=0.8750, EdgeCorr=0.4021
+Epoch 07 (7.35m) | ALL: PSNR=29.79 dB, SSIM=0.8686, Detail=0.9314, EdgeCorr=0.3599 | HEAVY: PSNR=29.89 dB, Detail=0.8775, EdgeCorr=0.4001
+Epoch 08 (7.40m) | ALL: PSNR=29.76 dB, SSIM=0.8691, Detail=0.9209, EdgeCorr=0.3576 | HEAVY: PSNR=29.86 dB, Detail=0.8799, EdgeCorr=0.3959
+Epoch 09 (7.47m) | ALL: PSNR=29.66 dB, SSIM=0.8682, Detail=0.9211, EdgeCorr=0.3526 | HEAVY: PSNR=29.77 dB, Detail=0.8739, EdgeCorr=0.3897
+Epoch 10 (7.46m) | ALL: PSNR=29.58 dB, SSIM=0.8671, Detail=0.9226, EdgeCorr=0.3508 | HEAVY: PSNR=29.71 dB, Detail=0.8808, EdgeCorr=0.3873
