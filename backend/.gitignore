@@ -1,0 +1,55 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+
+# Environments
+.env
+.venv
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Experiments, checkpoints & scratch
+experiment/
+experiments/
+*.ckpt
+result/
+results/
+scratch/
+scratch_diag/
+diagnostics_*/
+tests/
+lightning_logs/
+
+# Checkpoints: Ignore everything except the Sweet-Spot Best model
+checkpoints/*
+!checkpoints/ecrformer_sweetspot_best/
+!checkpoints/ecrformer_sweetspot_best/**
+
+# Outputs: Ignore scratch outputs except the metrics logs
+outputs/*
+!outputs/ecrformer_v4b_gan_lowadv/
+outputs/ecrformer_v4b_gan_lowadv/*
+!outputs/ecrformer_v4b_gan_lowadv/history.json
+!outputs/ecrformer_v4b_gan_lowadv/training_log.txt
+
+# Images: Ignore loose PNGs except the curated assets
+*.png
+!assets/**
+
+# Data caches
+*.npz
+/cache_*
+datasets/
+
+# Logs
+*.log
