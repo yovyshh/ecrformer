@@ -2,13 +2,21 @@
 
   <h2><b> ECRformer: SAR-Guided Optical Cloud Removal with Conditional PatchGAN </b></h2>
 
-  **Enhanced with High-Frequency Structural Detail & Scale-Decoupled Supervision**
+  <p><b>Enhanced with High-Frequency Structural Detail, Soft-Mask Blending & Scale-Decoupled Supervision</b></p>
+
+  <p>
+    <a href="https://huggingface.co/vyyyyyyy/ecrformer-satellite-cloud-removal"><b>🤗 Hugging Face Model Weights</b></a>
+  </p>
+
+  <img src="assets/paper_pipeline_architecture1.png" alt="ECRformer Paper Pipeline Architecture" width="100%"/>
+
+  <p><i>Figure: End-to-End Multimodal Cloud Removal Pipeline & Two-Tier Training Architecture.</i></p>
 
 </div>
 
 ---
 
-## 🌟 Overview: Solving the "Over-Smoothing" Trap
+##  Overview: Solving the "Over-Smoothing" Trap
 
 In optical-SAR cloud removal, when dense or opaque clouds block optical reflectance, models trained purely with pixel-wise $L_1$ and SSIM losses regress to the *conditional mean*. This results in **washed-out, blurry gray smudges** under clouds, erasing roads, fields, and waterlines (retaining only 23%–38% of high-frequency energy).
 
@@ -19,7 +27,7 @@ This repository contains the **Enhanced ECRformer**, introducing:
 
 ---
 
-## 🏆 Sweet-Spot Best Model
+##  Sweet-Spot Best Model
 
 The optimal checkpoint was captured at the adversarial sweet spot before late-epoch discriminator over-pressure, providing maximum structural sharpness without synthetic grain:
 
@@ -42,7 +50,7 @@ Evaluated over **160 validation scenes** across 4 distinct atmospheric regimes a
 
 ---
 
-## 🖼️ Visual Results Across Cloud Conditions ($256\times 256$ Resolution)
+## Visual Results Across Cloud Conditions ($256\times 256$ Resolution)
 
 ### 1. Urban Highway & Road Grid (Patch 420)
 *Cloudy Input $\rightarrow$ Ground Truth $\rightarrow$ Baseline (Blur) $\rightarrow$ Model V3 $\rightarrow$ Sweet-Spot Best*
@@ -98,7 +106,7 @@ with torch.no_grad():
 
 ---
 
-## 🏋️ Training with Conditional PatchGAN
+##  Training with Conditional PatchGAN
 
 To train or reproduce the fine-tuning run:
 
@@ -124,7 +132,7 @@ python train_ecrformer_v4_gan.py \
 
 ---
 
-## 📜 Original Reference & Citation
+##  Original Reference & Citation
 
 ```bibtex
 @article{zhang2026ecrformer,
