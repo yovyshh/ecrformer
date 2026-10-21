@@ -16,7 +16,7 @@
 
 ---
 
-## 🌟 Overview: Solving the "Over-Smoothing" Trap
+##  Overview: Solving the "Over-Smoothing" Trap
 
 In optical-SAR cloud removal, when dense or opaque clouds block optical reflectance, models trained purely with pixel-wise $L_1$ and SSIM losses regress to the *conditional mean*. This results in **washed-out, blurry gray smudges** under clouds, erasing roads, fields, and waterlines (retaining only 23%–38% of high-frequency energy).
 
@@ -27,7 +27,7 @@ This repository contains the **Enhanced ECRformer**, introducing:
 
 ---
 
-## 🏆 Sweet-Spot Best Model
+##  Sweet-Spot Best Model
 
 The optimal checkpoint was captured at the adversarial sweet spot before late-epoch discriminator over-pressure, providing maximum structural sharpness without synthetic grain:
 
@@ -50,7 +50,7 @@ Evaluated over **160 validation scenes** across 4 distinct atmospheric regimes a
 
 ---
 
-## 🖼️ Visual Results Across Cloud Conditions ($256\times 256$ Resolution)
+## Visual Results Across Cloud Conditions ($256\times 256$ Resolution)
 
 ### 1. Urban Highway & Road Grid (Patch 420)
 *Cloudy Input $\rightarrow$ Ground Truth $\rightarrow$ Baseline (Blur) $\rightarrow$ Model V3 $\rightarrow$ Sweet-Spot Best*
@@ -106,7 +106,7 @@ with torch.no_grad():
 
 ---
 
-## 🏋️ Training with Conditional PatchGAN
+##  Training with Conditional PatchGAN
 
 To train or reproduce the fine-tuning run:
 
@@ -132,7 +132,7 @@ python train_ecrformer_v4_gan.py \
 
 ---
 
-## 📜 Original Reference & Citation
+##  Original Reference & Citation
 
 ```bibtex
 @article{zhang2026ecrformer,
