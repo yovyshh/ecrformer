@@ -2,7 +2,15 @@
 
   <h2><b> ECRformer: SAR-Guided Optical Cloud Removal with Conditional PatchGAN </b></h2>
 
-  **Enhanced with High-Frequency Structural Detail & Scale-Decoupled Supervision**
+  <p><b>Enhanced with High-Frequency Structural Detail, Soft-Mask Blending & Scale-Decoupled Supervision</b></p>
+
+  <p>
+    <a href="https://huggingface.co/vyyyyyyy/ecrformer-satellite-cloud-removal"><b>🤗 Hugging Face Model Weights</b></a>
+  </p>
+
+  <img src="assets/paper_pipeline_architecture1.png" alt="ECRformer Paper Pipeline Architecture" width="100%"/>
+
+  <p><i>Figure: End-to-End Multimodal Cloud Removal Pipeline & Two-Tier Training Architecture.</i></p>
 
 </div>
 
