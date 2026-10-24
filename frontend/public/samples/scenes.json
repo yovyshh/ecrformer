@@ -1,0 +1,254 @@
+[
+  {
+    "id": "scene-suburban",
+    "name": "ROIs1970_fall_s2_22_p428",
+    "title": "Suburban Housing & Commercial Highway",
+    "category": "Urban & Infrastructure",
+    "description": "Dense residential street grid and commercial corridor under 64% cumulus cloud cover. Shows razor-sharp street grid and roof boundary recovery from Sentinel-1 SAR.",
+    "cloudPct": 64.0,
+    "resolution": "256 x 256 (Native 10m/px)",
+    "trainResolution": "128 x 128 Crops",
+    "paths": {
+      "cloudy": "/samples/scene-suburban/cloudy.png",
+      "sar": "/samples/scene-suburban/sar.png",
+      "mask": "/samples/scene-suburban/mask.png",
+      "clear": "/samples/scene-suburban/clear.png",
+      "pregan": "/samples/scene-suburban/pregan.png",
+      "patchgan": "/samples/scene-suburban/patchgan.png",
+      "blended": "/samples/scene-suburban/blended.png"
+    },
+    "metrics": {
+      "pregan": {
+        "psnr": 31.79,
+        "sam": 4.66,
+        "edgeCorr": 0.43,
+        "detailRetention": 13.3,
+        "description": "L1 + SSIM Baseline (Smooth in cloud core)"
+      },
+      "patchgan": {
+        "psnr": 36.65,
+        "sam": 2.75,
+        "edgeCorr": 0.865,
+        "detailRetention": 77.1,
+        "description": "Adversarially Sharpened Generator Direct Output"
+      },
+      "blended": {
+        "psnr": 37.95,
+        "sam": 2.23,
+        "edgeCorr": 0.869,
+        "detailRetention": 77.5,
+        "description": "Harmonized Soft-Mask Blended (Final Delivered Output)"
+      }
+    }
+  },
+  {
+    "id": "scene-farms",
+    "name": "ROIs1970_fall_s2_40_p104",
+    "title": "River Valley & Agricultural Parcels",
+    "category": "Agriculture & Water",
+    "description": "Heavy 96.9% overcast cloud blanket obscuring agricultural crop parcels and river terrace. Demonstrates near-total cloud penetration with zero seam artifacts.",
+    "cloudPct": 96.9,
+    "resolution": "256 x 256 (Native 10m/px)",
+    "trainResolution": "128 x 128 Crops",
+    "paths": {
+      "cloudy": "/samples/scene-farms/cloudy.png",
+      "sar": "/samples/scene-farms/sar.png",
+      "mask": "/samples/scene-farms/mask.png",
+      "clear": "/samples/scene-farms/clear.png",
+      "pregan": "/samples/scene-farms/pregan.png",
+      "patchgan": "/samples/scene-farms/patchgan.png",
+      "blended": "/samples/scene-farms/blended.png"
+    },
+    "metrics": {
+      "pregan": {
+        "psnr": 33.83,
+        "sam": 3.95,
+        "edgeCorr": 0.307,
+        "detailRetention": 15.9,
+        "description": "L1 + SSIM Baseline (Smooth in cloud core)"
+      },
+      "patchgan": {
+        "psnr": 37.3,
+        "sam": 2.58,
+        "edgeCorr": 0.814,
+        "detailRetention": 65.3,
+        "description": "Adversarially Sharpened Generator Direct Output"
+      },
+      "blended": {
+        "psnr": 42.03,
+        "sam": 1.54,
+        "edgeCorr": 0.818,
+        "detailRetention": 66.8,
+        "description": "Harmonized Soft-Mask Blended (Final Delivered Output)"
+      }
+    }
+  },
+  {
+    "id": "scene-forest",
+    "name": "ROIs1970_fall_s2_22_p108",
+    "title": "Forest Canopy & Highway Corridor",
+    "category": "Forestry & Nature",
+    "description": "Thick 78.4% cloud coverage over dense woodland and rural highway. Restores micro-texture of the forest canopy and sharp highway vector from SAR volume scattering.",
+    "cloudPct": 78.4,
+    "resolution": "256 x 256 (Native 10m/px)",
+    "trainResolution": "128 x 128 Crops",
+    "paths": {
+      "cloudy": "/samples/scene-forest/cloudy.png",
+      "sar": "/samples/scene-forest/sar.png",
+      "mask": "/samples/scene-forest/mask.png",
+      "clear": "/samples/scene-forest/clear.png",
+      "pregan": "/samples/scene-forest/pregan.png",
+      "patchgan": "/samples/scene-forest/patchgan.png",
+      "blended": "/samples/scene-forest/blended.png"
+    },
+    "metrics": {
+      "pregan": {
+        "psnr": 35.58,
+        "sam": 3.33,
+        "edgeCorr": 0.426,
+        "detailRetention": 13.6,
+        "description": "L1 + SSIM Baseline (Smooth in cloud core)"
+      },
+      "patchgan": {
+        "psnr": 39.31,
+        "sam": 2.19,
+        "edgeCorr": 0.801,
+        "detailRetention": 79.1,
+        "description": "Adversarially Sharpened Generator Direct Output"
+      },
+      "blended": {
+        "psnr": 40.66,
+        "sam": 1.66,
+        "edgeCorr": 0.804,
+        "detailRetention": 79.5,
+        "description": "Harmonized Soft-Mask Blended (Final Delivered Output)"
+      }
+    }
+  },
+  {
+    "id": "scene-canyon",
+    "name": "ROIs1970_fall_s2_119_p368",
+    "title": "Mountain Canyon & Geological Fault",
+    "category": "Mountain & Topography",
+    "description": "100% dense cloud blanket completely blinding optical sensors over jagged mountain ridges and river canyon. Reconstructed purely from Sentinel-1 SAR radar backscatter.",
+    "cloudPct": 100.0,
+    "resolution": "256 x 256 (Native 10m/px)",
+    "trainResolution": "128 x 128 Crops",
+    "paths": {
+      "cloudy": "/samples/scene-canyon/cloudy.png",
+      "sar": "/samples/scene-canyon/sar.png",
+      "mask": "/samples/scene-canyon/mask.png",
+      "clear": "/samples/scene-canyon/clear.png",
+      "pregan": "/samples/scene-canyon/pregan.png",
+      "patchgan": "/samples/scene-canyon/patchgan.png",
+      "blended": "/samples/scene-canyon/blended.png"
+    },
+    "metrics": {
+      "pregan": {
+        "psnr": 31.12,
+        "sam": 6.6,
+        "edgeCorr": 0.141,
+        "detailRetention": 14.3,
+        "description": "L1 + SSIM Baseline (Smooth in cloud core)"
+      },
+      "patchgan": {
+        "psnr": 34.85,
+        "sam": 4.39,
+        "edgeCorr": 0.845,
+        "detailRetention": 70.8,
+        "description": "Adversarially Sharpened Generator Direct Output"
+      },
+      "blended": {
+        "psnr": 38.83,
+        "sam": 2.48,
+        "edgeCorr": 0.847,
+        "detailRetention": 71.6,
+        "description": "Harmonized Soft-Mask Blended (Final Delivered Output)"
+      }
+    }
+  },
+  {
+    "id": "scene-ridge",
+    "name": "ROIs1970_fall_s2_65_p248",
+    "title": "High-Altitude Ridges & Valley Basin",
+    "category": "High-Altitude Topography",
+    "description": "81.6% broken stratus clouds over alpine terrain. High-frequency structural detail retention exceeds 85%, revealing complex topographic elevation lines.",
+    "cloudPct": 81.6,
+    "resolution": "256 x 256 (Native 10m/px)",
+    "trainResolution": "128 x 128 Crops",
+    "paths": {
+      "cloudy": "/samples/scene-ridge/cloudy.png",
+      "sar": "/samples/scene-ridge/sar.png",
+      "mask": "/samples/scene-ridge/mask.png",
+      "clear": "/samples/scene-ridge/clear.png",
+      "pregan": "/samples/scene-ridge/pregan.png",
+      "patchgan": "/samples/scene-ridge/patchgan.png",
+      "blended": "/samples/scene-ridge/blended.png"
+    },
+    "metrics": {
+      "pregan": {
+        "psnr": 34.4,
+        "sam": 2.04,
+        "edgeCorr": 0.401,
+        "detailRetention": 31.6,
+        "description": "L1 + SSIM Baseline (Smooth in cloud core)"
+      },
+      "patchgan": {
+        "psnr": 39.17,
+        "sam": 1.32,
+        "edgeCorr": 0.849,
+        "detailRetention": 107.3,
+        "description": "Adversarially Sharpened Generator Direct Output"
+      },
+      "blended": {
+        "psnr": 43.08,
+        "sam": 0.97,
+        "edgeCorr": 0.858,
+        "detailRetention": 108.5,
+        "description": "Harmonized Soft-Mask Blended (Final Delivered Output)"
+      }
+    }
+  },
+  {
+    "id": "scene-lake",
+    "name": "ROIs1970_fall_s2_119_p612",
+    "title": "Water Reservoir & Shoreline",
+    "category": "Coastal & Hydrology",
+    "description": "100% overcast cloud cover over a dark water reservoir and jagged forest shoreline. Accurately maps the specular reflection of water vs rough land.",
+    "cloudPct": 100.0,
+    "resolution": "256 x 256 (Native 10m/px)",
+    "trainResolution": "128 x 128 Crops",
+    "paths": {
+      "cloudy": "/samples/scene-lake/cloudy.png",
+      "sar": "/samples/scene-lake/sar.png",
+      "mask": "/samples/scene-lake/mask.png",
+      "clear": "/samples/scene-lake/clear.png",
+      "pregan": "/samples/scene-lake/pregan.png",
+      "patchgan": "/samples/scene-lake/patchgan.png",
+      "blended": "/samples/scene-lake/blended.png"
+    },
+    "metrics": {
+      "pregan": {
+        "psnr": 31.73,
+        "sam": 5.64,
+        "edgeCorr": 0.282,
+        "detailRetention": 13.1,
+        "description": "L1 + SSIM Baseline (Smooth in cloud core)"
+      },
+      "patchgan": {
+        "psnr": 35.24,
+        "sam": 3.94,
+        "edgeCorr": 0.843,
+        "detailRetention": 59.4,
+        "description": "Adversarially Sharpened Generator Direct Output"
+      },
+      "blended": {
+        "psnr": 37.5,
+        "sam": 2.81,
+        "edgeCorr": 0.847,
+        "detailRetention": 60.3,
+        "description": "Harmonized Soft-Mask Blended (Final Delivered Output)"
+      }
+    }
+  }
+]
