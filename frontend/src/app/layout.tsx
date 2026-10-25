@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "ECRformer + PatchGAN | SAR-Guided Satellite Cloud Removal Showcase",
   description:
-    "Interactive showcase of SAR-Guided Optical Satellite Cloud Removal using ECRformer and PatchGAN on the SEN12MS-CR dataset. Research project by Vaishnav T Prakash (M.Sc. CS AI, CUSAT).",
+    "Interactive showcase of SAR-Guided Optical Satellite Cloud Removal using ECRformer and PatchGAN on the SEN12MS-CR dataset.",
   keywords: [
     "ECRformer",
     "PatchGAN",
@@ -26,7 +26,6 @@ export const metadata: Metadata = {
     "Deep Learning",
     "Remote Sensing",
   ],
-  authors: [{ name: "Vaishnav T Prakash" }],
 };
 
 export default function RootLayout({
