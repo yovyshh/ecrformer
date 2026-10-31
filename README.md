@@ -5,10 +5,7 @@
 ### High-Frequency Structural Inpainting via Multimodal Cross-Attention & Multi-Band Laplacian Harmonization
 
 [![Hugging Face Model](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model%20Weights-orange)](https://huggingface.co/vyyyyyyy/ecrformer-satellite-cloud-removal)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.x-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Dataset: SEN12MS-CR](https://img.shields.io/badge/Dataset-SEN12MS--CR-green)](https://github.com/schmitt-rsl/SEN12MS-CR)
-[![Frontend: Next.js](https://img.shields.io/badge/Frontend-Next.js%2014-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
 
 <br/>
 
