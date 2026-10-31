@@ -10,7 +10,7 @@
 <br/>
 
 **Project Guide:** Dr. Sabu M. K.  
-**Team Members (Alphabetical Order):** Agnal K. V. &bull; Bivin Balu &bull; Vaishnav T. Prakash
+**Team Members :** Agnal K. V. &bull; Bivin Balu &bull; Vaishnav T. Prakash
 
 ---
 
