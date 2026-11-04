@@ -34,6 +34,8 @@ lightning_logs/
 checkpoints/*
 !checkpoints/ecrformer_sweetspot_best/
 !checkpoints/ecrformer_sweetspot_best/**
+!checkpoints/ecrformer_baseline/
+!checkpoints/ecrformer_baseline/**
 
 # Outputs: Ignore scratch outputs except the metrics logs
 outputs/*
