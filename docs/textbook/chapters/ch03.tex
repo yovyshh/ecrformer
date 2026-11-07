@@ -1,0 +1,114 @@
+\chapter{Python, PyTorch, and Deep Learning Foundations}
+\label{chap:ch03}
+
+\section{Object-Oriented Deep Learning in PyTorch}
+PyTorch is a modern, dynamic scientific computing library that combines multidimensional tensor mathematics on NVIDIA CUDA GPUs with an automatic differentiation engine (\texttt{torch.autograd}).
+
+Every neural network component in PyTorch is implemented as an Object-Oriented class that inherits from the fundamental base class: \texttt{torch.nn.Module}.
+
+\begin{conceptbox}{Analogy: A Factory Assembly Line Worker}
+Think of an \texttt{nn.Module} as a specialized worker on an assembly line:
+\begin{itemize}
+    \item \textbf{Internal tools (Parameters):} The worker has specific adjustable tools (weights and biases) initialized in the \texttt{\_\_init\_\_()} method.
+    \item \textbf{Action (\texttt{forward()}):} When raw materials (input tensors) arrive on the conveyor belt, the worker applies their tools to transform the material and passes it to the next workstation.
+    \item \textbf{Fine-tuning (Gradients):} At the end of the shift, quality control provides feedback on errors, and the worker slightly adjusts their tool settings (updating weights via backpropagation) to perform better tomorrow!
+\end{itemize}
+\end{conceptbox}
+
+\section{The Anatomy of an \texttt{nn.Module}}
+Here is how a clean, minimal PyTorch module is constructed:
+\begin{lstlisting}[language=Python]
+import torch
+import torch.nn as nn
+
+class SimpleModalityStem(nn.Module):
+    def __init__(self, in_channels=2, out_channels=16):
+        super(SimpleModalityStem, self).__init__()
+        # Define internal trainable layers
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        # x arrives with shape: [Batch, InChannels, Height, Width]
+        feat = self.conv(x)
+        out = self.relu(feat)
+        return out
+\end{lstlisting}
+
+\subsection{Why Never Call \texttt{.forward()} Directly}
+In Python, one calls the instantiated model like a function:
+\begin{lstlisting}[language=Python]
+stem = SimpleModalityStem(2, 16)
+output = stem(my_input_tensor) # Correct: invokes __call__()
+\end{lstlisting}
+Under the hood, PyTorch's \texttt{\_\_call\_\_} method registers forward pre-hooks, execution profiling, and backward autograd hooks before calling \texttt{forward(x)}. Calling \texttt{stem.forward(x)} directly bypasses these crucial internal mechanisms!
+
+\section{Essential Tensor Operations in Satellite Computer Vision}
+
+\subsection{Broadcasting}
+When performing arithmetic operations between tensors of different shapes, PyTorch automatically stretches (broadcasts) the smaller tensor across the missing or singleton dimensions without copying data in memory.
+\begin{mathbox}{Numerical Broadcasting Example}
+Suppose we have a predicted optical feature map $\mathbf{P} \in \mathbb{R}^{2 \times 4 \times 128 \times 128}$ and a single-channel cloud mask $\mathbf{M} \in \mathbb{R}^{2 \times 1 \times 128 \times 128}$.
+We evaluate:
+\[
+\mathbf{Y} = \mathbf{M} \odot \mathbf{P}
+\]
+Along dimension $C=1$, $\mathbf{M}$ has 1 channel while $\mathbf{P}$ has 4 channels. PyTorch broadcasts $\mathbf{M}$ identically across all 4 channels (Red, Green, Blue, NIR):
+\[
+\mathbf{Y}_{b, c, h, w} = \mathbf{M}_{b, 0, h, w} \times \mathbf{P}_{b, c, h, w} \quad \text{for each } c \in \{0, 1, 2, 3\}
+\]
+\end{mathbox}
+
+\subsection{Channel Concatenation (\texttt{torch.cat})}
+Combining different physical modalities (such as SAR features and optical features) is achieved by stacking tensors along the channel dimension ($C=1$):
+\begin{lstlisting}[language=Python]
+# s1_feat: [B, 16, H, W]
+# s2_feat: [B, 16, H, W]
+fused = torch.cat([s1_feat, s2_feat], dim=1) # Shape: [B, 32, H, W]
+\end{lstlisting}
+Spatial dimensions ($H, W$) and batch size ($B$) must match exactly.
+
+\section{The Core PyTorch Training Step}
+Every deep learning training step consists of six coordinated phases:
+\begin{lstlisting}[language=Python]
+# 1. Zero out old gradients from the previous batch
+optimizer.zero_grad()
+
+# 2. Forward pass: compute predictions
+pred = model(x_input)
+
+# 3. Loss calculation: evaluate scalar error
+loss = criterion(pred, target)
+
+# 4. Backward pass: compute dLoss/dWeight for all parameters
+loss.backward()
+
+# 5. Gradient clipping: prevent exploding gradients
+torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+# 6. Optimizer step: update weights in the direction of negative gradient
+optimizer.step()
+\end{lstlisting}
+
+\section{Summary of Chapter 3}
+\begin{enumerate}
+    \item Neural network building blocks in PyTorch inherit from \texttt{torch.nn.Module}.
+    \item Layers and trainable weights are initialized in \texttt{\_\_init\_\_()}; execution logic resides in \texttt{forward()}.
+    \item Always call \texttt{model(x)} rather than \texttt{model.forward(x)} to preserve autograd hooks.
+    \item Broadcasting allows single-channel spatial masks to multiply multi-band optical tensors seamlessly.
+    \item The training cycle follows: \texttt{zero\_grad()} $\to$ forward pass $\to$ loss calculation $\to$ \texttt{loss.backward()} $\to$ \texttt{optimizer.step()}.
+\end{enumerate}
+
+\section{Practice Exercises}
+\begin{enumerate}
+    \item What is the output shape when tensor $\mathbf{A}$ of shape $[2, 1, 64, 64]$ is multiplied element-wise with tensor $\mathbf{B}$ of shape $[2, 32, 64, 64]$?
+    \item What will happen during training if you forget to call \texttt{optimizer.zero\_grad()} before \texttt{loss.backward()}?
+    \item Why does \texttt{torch.cat([tensor1, tensor2], dim=1)} require that dimensions 0, 2, and 3 match identically?
+\end{enumerate}
+
+\subsection*{Solutions}
+\begin{enumerate}
+    \item Shape: $[2, 32, 64, 64]$. The singleton channel dimension of $\mathbf{A}$ is broadcast across the 32 channels of $\mathbf{B}$.
+    \item Gradients in PyTorch accumulate by default (they are summed with existing values in \texttt{param.grad}). If \texttt{optimizer.zero\_grad()} is omitted, gradients from the current batch will add to gradients from all preceding batches, causing the effective gradient magnitude to blow up and destabilize training.
+    \item Concatenation joins tensors along a specific axis without changing the geometric grid along any other axis. If height, width, or batch size differed, the elements could not form a valid rectangular multidimensional array.
+\end{enumerate}

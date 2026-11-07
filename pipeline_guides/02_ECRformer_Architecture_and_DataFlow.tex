@@ -1,0 +1,174 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+\usepackage{graphicx}
+
+\tcbuselibrary{skins,breakable}
+
+% Colors
+\definecolor{primary}{HTML}{1B365D}   % Navy
+\definecolor{secondary}{HTML}{008080} % Teal
+\definecolor{accent}{HTML}{C0392B}    % Crimson
+\definecolor{boxbg}{HTML}{F8FAFC}     % Off-white
+\definecolor{bordercolor}{HTML}{CBD5E1}
+
+% Page styling
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\textcolor{primary}{\small\textbf{Pipeline Document 02: ECRformer Architecture}}}
+\lhead{\small CUSAT MSc AI Mini-Project}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.6pt}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=primary,
+    urlcolor=secondary,
+    citecolor=primary
+}
+
+\begin{document}
+
+% Title Header
+\begin{center}
+    {\LARGE \textbf{\textcolor{primary}{02 $\cdot$ ECRFORMER ARCHITECTURE \& DATA FLOW}}}\\[0.4em]
+    {\large \textbf{How Multi-Modal Tensors Pass Through the Generator to Inpaint Ground Detail}}\\[0.6em]
+    {\small \textbf{Project:} SAR-Guided Satellite Cloud Removal $\cdot$ ECRformer + Conditional PatchGAN}\\
+    {\small \textbf{Authors:} Agnal K V $\cdot$ Bivin Balu $\cdot$ Vaishnav T Prakash $\quad|\quad$ \textbf{Supervisor:} Dr. Sabu M K}\\
+    {\small Department of Computer Applications, Cochin University of Science and Technology (CUSAT)}
+\end{center}
+\vspace{-0.5em}
+\noindent\rule{\linewidth}{1.2pt}
+
+\vspace{0.8em}
+\begin{tcolorbox}[colback=primary!5!white,colframe=primary,title=\textbf{Document Purpose \& Architecture Summary},fonttitle=\bfseries]
+This document explains the \textbf{ECRformer (Edge-Enhanced Cross-Modality Residual Transformer)} generator architecture in simple, accessible language. It tracks how raw 7-channel multi-modal inputs ($S_1$ SAR, $S_{2,\text{cloudy}}$ optical, and soft mask $M$) pass through the decoupled stem, hierarchical cross-attention encoder, TSA bottleneck, and decoder stages. It also justifies \textbf{why each architectural component was chosen over standard neural network alternatives}.
+\end{tcolorbox}
+
+\section{The Core Architecture Blueprint}
+
+ECRformer operates as the central generator $G_{\theta}$. Its objective is to map corrupted, cloud-covered optical images and co-registered radar observations into clear optical surface reflectance.
+
+\begin{center}
+\begin{tcolorbox}[colback=boxbg,colframe=bordercolor,width=0.98\linewidth]
+\textbf{\textcolor{primary}{Key Architectural Specifications (ECRformer-Lite Adapted Model):}}
+\begin{itemize}[leftmargin=1.5em, itemsep=0.3em]
+    \item \textbf{Total Active Parameters:} $3.62 \times 10^6$ parameters ($\approx 13.9\text{ MB}$ state dictionary).
+    \item \textbf{Decoupled Multimodal Stem:} Independent initial projections for optical ($7 \times 7$ Conv) and SAR ($7 \times 7$ Conv) to respect distinct physical sensor domains before fusion.
+    \item \textbf{Hierarchical 4-Stage Encoder:} Channel progression $[32 \to 64 \to 128 \to 256]$ with block depths $[2, 2, 1, 1]$.
+    \item \textbf{Cross-Modality Attention (CMA):} SAR features serve as keys and values ($K, V$), while optical features act as queries ($Q$), dynamically infusing missing ground structure where optical signals are occluded.
+    \item \textbf{TSA (Time-Space Attention) Bottleneck:} Captures global contextual relationships across space and modality channels with linear computational complexity $\mathcal{O}(HW)$.
+    \item \textbf{Symmetric Decoder with CBAM:} Convolutional Block Attention Module (Channel + Spatial attention) on skip connections to filter uninformative encoder features before final reconstruction.
+\end{itemize}
+\end{tcolorbox}
+\end{center}
+
+\newpage
+
+\section{Step-by-Step Forward Data Flow (Tensor Tracking)}
+
+Let us follow a batch of satellite scenes $X_{\text{in}} \in \mathbb{R}^{B \times 7 \times 128 \times 128}$ through each layer:
+
+\begin{figure}[h!]
+\centering
+\small
+\renewcommand{\arraystretch}{1.3}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lllll}
+\toprule
+\textbf{Stage} & \textbf{Operation / Layer} & \textbf{Input Shape} & \textbf{Output Shape} & \textbf{Physical Interpretation} \\
+\midrule
+\textbf{0. Input Split} & Slicing across channel axis & $[B, 7, 128, 128]$ & $S_2:[B,4], S_1:[B,2], M:[B,1]$ & Separates optical, SAR radar, and mask \\
+\textbf{1. Decoupled Stem} & Two separate $7\times 7$ Convs & $S_2:[B,4], S_1:[B,2]$ & $F_{\text{opt}}:[B,32], F_{\text{sar}}:[B,32]$ & Domain-specific low-level feature extraction \\
+\textbf{2. Stage 1 (Enc)} & 2 ECRformer blocks ($C=32$) & $[B, 32, 128, 128]$ & $[B, 32, 128, 128]$ & Local texture \& edge feature modeling \\
+\textbf{3. Patch Merge 1} & $2\times$ Strided Downsampling & $[B, 32, 128, 128]$ & $[B, 64, 64, 64]$ & Halves spatial resolution, doubles channel capacity \\
+\textbf{4. Stage 2 (Enc)} & 2 ECRformer blocks ($C=64$) & $[B, 64, 64, 64]$ & $[B, 64, 64, 64]$ & Cross-modal structural fusion \\
+\textbf{5. Patch Merge 2} & $2\times$ Strided Downsampling & $[B, 64, 64, 64]$ & $[B, 128, 32, 32]$ & Multi-scale spatial abstraction \\
+\textbf{6. Stage 3 (Enc)} & 1 ECRformer block ($C=128$) & $[B, 128, 32, 32]$ & $[B, 128, 32, 32]$ & Regional semantic understanding (roads, rivers) \\
+\textbf{7. Patch Merge 3} & $2\times$ Strided Downsampling & $[B, 128, 32, 32]$ & $[B, 256, 16, 16]$ & Deepest spatial abstraction \\
+\textbf{8. Stage 4 (Enc)} & 1 ECRformer block ($C=256$) & $[B, 256, 16, 16]$ & $[B, 256, 16, 16]$ & Global topographical landscape representation \\
+\textbf{9. TSA Bottleneck}& Time-Space Attention & $[B, 256, 16, 16]$ & $[B, 256, 16, 16]$ & Non-local global cross-scene reasoning \\
+\textbf{10. Decoder Up 1} & Transposed Conv + Skip + CBAM & $[B, 256, 16, 16]$ & $[B, 128, 32, 32]$ & Reconstructs regional spatial layout \\
+\textbf{11. Decoder Up 2} & Transposed Conv + Skip + CBAM & $[B, 128, 32, 32]$ & $[B, 64, 64, 64]$ & Reconstructs fine boundaries and field contours \\
+\textbf{12. Decoder Up 3} & Transposed Conv + Skip + CBAM & $[B, 64, 64, 64]$ & $[B, 32, 128, 128]$ & Restores native physical 10m spatial resolution \\
+\textbf{13. Prediction Head}& $3\times 3$ Conv Head + Mean Prior & $[B, 32, 128, 128]$ & $[B, 4, 128, 128]$ & Outputs unblended direct prediction $P_{\text{dir}}$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Exact layer-by-layer tensor progression throughout ECRformer.}
+\end{figure}
+
+\subsection{Cross-Modality Attention (CMA) Mathematics}
+
+Inside each encoder block, the fusion between optical features $F_{\text{opt}}$ and radar features $F_{\text{sar}}$ is computed as:
+\begin{equation}
+Q = W_Q F_{\text{opt}}, \qquad K = W_K F_{\text{sar}}, \qquad V = W_V F_{\text{sar}}
+\end{equation}
+\begin{equation}
+\text{CMA}(Q, K, V) = \text{Softmax}\left( \frac{Q K^T}{\sqrt{d_k}} \right) V
+\end{equation}
+\textbf{Intuition:} The optical feature queries the radar features to ask: \textit{"What structural surface boundary exists beneath this cloud at spatial location $(x, y)$?"} The radar backscatter responds with dielectric roughness and edge orientation, filling in the occluded information.
+
+\section{Why We Used These Methods Over Others}
+
+\begin{tcolorbox}[colback=white,colframe=primary,title=\textbf{1. Why ECRformer over Standard Convolutional U-Nets (e.g. Pix2Pix, DSen2-CR)?}]
+\textbf{Alternative:} Standard U-Net with pure $3 \times 3$ convolutions.
+\begin{itemize}[leftmargin=1.2em, itemsep=0.2em]
+    \item \textbf{Failure of Alternative:} Pure convolutional filters have small local receptive fields. In satellite imagery, dense clouds often span $50\text{ km} \times 50\text{ km}$ ($100+$ pixels). A $3 \times 3$ convolution inside the center of a dense cloud sees only white pixels and has zero receptive access to clear surrounding ground. It is completely blind to context.
+    \item \textbf{Why Our Choice Wins:} ECRformer integrates multi-head self-attention, giving it an \textbf{infinite receptive field}. A cloudy pixel in the center can directly attend to clear ground pixels $10\text{ km}$ away to infer regional terrain, vegetation types, and radiometric colors.
+\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[colback=white,colframe=secondary,title=\textbf{2. Why a Decoupled Multimodal Stem over Simple Early Channel Stacking?}]
+\textbf{Alternative:} Stacking SAR and optical into a single 6-channel input and feeding it to one shared $7\times 7$ convolution.
+\begin{itemize}[leftmargin=1.2em, itemsep=0.2em]
+    \item \textbf{Failure of Alternative:} Optical reflectance measures passive solar photon absorption ($0$ to $100\%$ light). SAR measures active coherent microwave backscatter and speckle noise. Forcing both modalities into the same initial convolutional kernels forces the network to learn incompatible early edge filters, corrupting optical color calibration.
+    \item \textbf{Why Our Choice Wins:} The Decoupled Stem uses two specialized convolutional branches. The SAR branch learns radar-specific speckle-filtering kernels, while the optical branch learns multi-spectral color representations. They are only fused \textit{after} each has been projected into a shared semantic feature space.
+\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[colback=white,colframe=primary,title=\textbf{3. Why Cross-Modality Attention (CMA) over Simple Feature Concatenation?}]
+\textbf{Alternative:} Concatenating optical and SAR feature maps along the channel dimension ($[F_{\text{opt}}, F_{\text{sar}}]$).
+\begin{itemize}[leftmargin=1.2em, itemsep=0.2em]
+    \item \textbf{Failure of Alternative:} Concatenation is static and non-adaptive. It gives identical weight to SAR across every pixel, even in clear-sky areas where SAR is noisy and unnecessary.
+    \item \textbf{Why Our Choice Wins:} CMA is dynamic and context-aware. Where the optical signal is clear ($M \approx 0$), self-attention dominates and preserves real optical reflectance. Where thick clouds obscure the ground ($M \approx 1$), cross-attention dynamically re-routes gradient flow to extract the required road and river contours from the SAR radar stream.
+\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[colback=white,colframe=secondary,title=\textbf{4. Why Scale-Decoupled Frequency Loss (SDFL) over Standard $L_1/L_2$ Alone?}]
+\textbf{Alternative:} Training generator strictly with Mean Absolute Error ($L_1$) or Mean Squared Error ($L_2$).
+\begin{itemize}[leftmargin=1.2em, itemsep=0.2em]
+    \item \textbf{Failure of Alternative:} Over $90\%$ of an image's energy resides in low spatial frequencies (flat illumination, large fields). Under heavy clouds where ground truth is uncertain, $L_1$ minimizes risk by predicting the conditional mathematical mean $\mathbb{E}[Y | X]$. This causes the infamous \textbf{"blurriness trap"}---muddy, washed-out grey smudges where roads should be.
+    \item \textbf{Why Our Choice Wins:} SDFL applies a Laplacian pyramid to decompose predictions into multiple frequency octaves ($P = P_{\text{low}} + P_{\text{mid}} + P_{\text{high}}$). It penalizes high-frequency gradient errors independently:
+    \begin{equation}
+    \mathcal{L}_{\text{SDFL}} = \sum_{s=1}^S 2^{S-s} \cdot \|\nabla P^{(s)} - \nabla Y^{(s)}\|_1
+    \end{equation}
+    forcing the generator to reconstruct crisp sharp edges rather than blurry averages.
+\end{itemize}
+\end{tcolorbox}
+
+% Quick Viva Sheet
+\section{15-Second Viva Examiner Defense Quick-Sheet}
+
+\begin{description}[leftmargin=1.5em, style=nextline]
+    \item[\textbf{Q: What is the parameter count and memory footprint of ECRformer?}]
+    \textit{Answer:} ECRformer-Lite contains $3.62$ Million parameters, consuming only $\approx 14\text{ MB}$ of memory. This allows it to run real-time inference ($18\text{ ms}$ per scene) even on commodity hardware or cloud serverless endpoints.
+    
+    \item[\textbf{Q: What is the role of the TSA (Time-Space Attention) bottleneck?}]
+    \textit{Answer:} The TSA bottleneck captures long-range non-local dependencies across the entire satellite scene. By factorizing spatial and channel attention into linear projections, it achieves global receptive field modeling with $\mathcal{O}(HW)$ linear complexity instead of $\mathcal{O}(H^2W^2)$.
+    
+    \item[\textbf{Q: Why does the generator output an unblended prediction $P_{\text{dir}}$ instead of the final image?}]
+    \textit{Answer:} Supervising the raw unblended prediction $P_{\text{dir}}$ forces the neural network to learn complete ground reconstruction under every pixel without relying on clear-sky passthrough shortcuts. The soft blending is applied in Phase 2 during testing.
+\end{description}
+
+\end{document}

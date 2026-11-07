@@ -1,0 +1,120 @@
+\chapter{SEN12MS-CR Dataset and Preprocessing}
+\label{chap:ch07}
+
+\section{The SEN12MS-CR Benchmark Dataset}
+The SEN12MS-CR (Sentinel-1 and Sentinel-2 Multi-Spectral Dataset for Cloud Removal) dataset, introduced by Ebel et al.~\cite{ebel2020sen12mscr}, is the global benchmark for multimodal satellite image reconstruction.
+
+The dataset spans all meteorological seasons and continents, covering diverse biomes including dense Amazonian rainforests, arid deserts, European agricultural farmlands, urban megacities, and Arctic tundras.
+
+\subsection{Structure of a Multimodal Triplet}
+Each observation consists of three spatially co-registered data arrays acquired over the exact same geographical bounding box:
+\begin{enumerate}
+    \item \textbf{Input Sentinel-2 Optical Image ($\mathbf{X}_{\text{cloudy}}$):} Acquired on a cloudy day, containing 4 spectral bands (\texttt{B04}, \texttt{B03}, \texttt{B02}, \texttt{B08}) contaminated by cumulus, stratus, cirrus, or haze.
+    \item \textbf{Input Sentinel-1 SAR Image ($\mathbf{X}_{\text{SAR}}$):} Acquired close in time to the cloudy optical acquisition, containing VV and VH microwave backscatter channels.
+    \item \textbf{Ground-Truth Reference Optical Image ($\mathbf{Y}^*_{\text{clear}}$):} Acquired over the same scene on a nearby clear-sky date.
+\end{enumerate}
+
+\begin{warningbox}{The Reality of Satellite Ground-Truth: Temporal Offset}
+In satellite remote sensing, \textbf{it is physically impossible to acquire a cloud-free optical image and a cloudy optical image at the exact same second in time!} 
+The clear reference target is taken from a different satellite overpass (typically a few days or weeks apart). As a consequence:
+\begin{itemize}
+    \item Seasonal crop harvesting or plowing may have occurred between the two dates.
+    \item Soil moisture or river water levels may have changed.
+    \item The reference image may occasionally contain faint residual cirrus haze or cloud shadows.
+\end{itemize}
+A research-level engineer must recognize that the ground-truth target contains natural temporal variations, meaning that penalizing tiny high-frequency pixel differences too harshly can cause the network to overfit to temporal noise!
+\end{warningbox}
+
+\section{Dataset Splitting: Eliminating Spatial Leakage}
+Our dataset is pre-processed and cached in the directory \texttt{cache\_fall\_v3} across three partitions:
+\begin{itemize}
+    \item \textbf{Training Set (\texttt{train}):} 33,468 patches.
+    \item \textbf{Validation Set (\texttt{val}):} 1,115 patches.
+    \item \textbf{Test Set (\texttt{test}):} 151 patches.
+\end{itemize}
+Crucially, these splits are partitioned by \textbf{Region of Interest (ROI) scene directory} rather than by individual patches. If patches from the same $100\text{ km} \times 100\text{ km}$ tile were randomly mixed, the model could easily memorize road networks and geographic coastlines, creating the illusion of generalization. Scene-level splitting guarantees that the validation and test patches come from geographical territories that the model has never encountered during training!
+
+\section{Exact Radiometric Normalization Formulas}
+Raw sensor readings have vastly different physical units and dynamic ranges. Feeding unnormalized values into a neural network destabilizes activation variances and causes vanishing or exploding gradients.
+
+\subsection{Optical Reflectance Normalization}
+Raw Sentinel-2 Level-1C and Level-2A data are distributed as 16-bit integer Digital Numbers ($\text{DN} \in [0, 10000]$). In our cached dataset:
+\begin{equation}
+\mathbf{X}_{\text{opt}} = \text{clip}\left(\frac{\text{DN}}{10000.0}, 0.0, 1.0\right)
+\end{equation}
+A value of $0.0$ corresponds to $0\%$ surface reflectance (absolute absorption), while $1.0$ corresponds to $100\%$ surface reflectance. In practice, dense clouds often saturate near $0.8\text{--}1.0$, while typical clear vegetation has reflectances of $0.03\text{--}0.15$ in visible bands and $0.30\text{--}0.50$ in the NIR band.
+
+\subsection{Sentinel-1 SAR Normalization: \texttt{paper\_exact}}
+Synthetic Aperture Radar backscatter is measured in logarithmic \textbf{decibels (dB)}:
+\begin{equation}
+\sigma^0_{\text{dB}} = 10 \log_{10}(\sigma^0)
+\end{equation}
+Typical terrestrial SAR backscatter values range from $-35\text{ dB}$ (smooth calm water or tarmac) to $0\text{ dB}$ (corner reflectors in urban buildings). In \texttt{data/cache\_dataset.py}, our active training pipeline applies the \texttt{paper\_exact} normalization:
+\begin{align}
+\mathbf{X}_{\text{VV, norm}} &= \frac{\text{clip}(\sigma^0_{\text{VV}}, -25.0, 0.0) + 25.0}{25.0} \in [0, 1] \\
+\mathbf{X}_{\text{VH, norm}} &= \frac{\text{clip}(\sigma^0_{\text{VH}}, -35.0, 0.0) + 35.0}{35.0} \in [0, 1]
+\end{align}
+
+\begin{mathbox}{SAR Normalization Walkthrough}
+Suppose a patch contains two pixels: Pixel A over a calm lake and Pixel B over an urban skyscraper.
+\begin{enumerate}
+    \item \textbf{Pixel A (Calm Lake):}
+    \[
+    \sigma^0_{\text{VV}} = -28.4\text{ dB}, \quad \sigma^0_{\text{VH}} = -38.1\text{ dB}
+    \]
+    Clamping: $\sigma^0_{\text{VV}} \to -25.0$, $\sigma^0_{\text{VH}} \to -35.0$.
+    Normalized values:
+    \[
+    \mathbf{X}_{\text{VV, norm}} = \frac{-25.0 + 25.0}{25.0} = \mathbf{0.0}, \quad \mathbf{X}_{\text{VH, norm}} = \frac{-35.0 + 35.0}{35.0} = \mathbf{0.0}
+    \]
+    \item \textbf{Pixel B (Urban Skyscraper):}
+    \[
+    \sigma^0_{\text{VV}} = -5.0\text{ dB}, \quad \sigma^0_{\text{VH}} = -14.0\text{ dB}
+    \]
+    Clamping: Values are already within $[-25, 0]$ and $[-35, 0]$.
+    Normalized values:
+    \[
+    \mathbf{X}_{\text{VV, norm}} = \frac{-5.0 + 25.0}{25.0} = \frac{20.0}{25.0} = \mathbf{0.80}
+    \]
+    \[
+    \mathbf{X}_{\text{VH, norm}} = \frac{-14.0 + 35.0}{35.0} = \frac{21.0}{35.0} = \mathbf{0.60}
+    \]
+\end{enumerate}
+Both radar and optical channels are now bounded within $[0, 1]$, enabling stable multimodal feature fusion.
+\end{mathbox}
+
+\begin{codebox}{Code Implementation in \texttt{data/cache\_dataset.py}}
+\begin{lstlisting}[language=Python]
+# Lines 63-75 in data/cache_dataset.py
+if self.sar_norm == 'paper_exact':
+    # VV: [-25, 0] dB -> [0, 1]
+    # VH: [-35, 0] dB -> [0, 1]
+    s1[0] = np.clip(s1[0], -25.0, 0.0)
+    s1[0] = (s1[0] + 25.0) / 25.0
+    s1[1] = np.clip(s1[1], -35.0, 0.0)
+    s1[1] = (s1[1] + 35.0) / 35.0
+\end{lstlisting}
+\end{codebox}
+
+\section{Summary of Chapter 7}
+\begin{enumerate}
+    \item SEN12MS-CR provides spatially co-registered triplets of cloudy optical, SAR, and clear-sky reference imagery across global biomes.
+    \item Due to orbital revisit schedules, clear-sky ground-truth imagery is acquired on a nearby date, introducing subtle temporal phenology variations.
+    \item Strict scene-level dataset splitting prevents spatial data leakage between training, validation, and test sets.
+    \item Optical surface reflectance is normalized to $[0, 1]$ by dividing digital numbers by 10,000.
+    \item Sentinel-1 SAR dB backscatter is clipped to $[-25, 0]\text{ dB}$ (VV) and $[-35, 0]\text{ dB}$ (VH) and scaled to $[0, 1]$.
+\end{enumerate}
+
+\section{Practice Exercises}
+\begin{enumerate}
+    \item If a radar backscatter reading for VH is recorded as $-42.0\text{ dB}$, what is its normalized value under the \texttt{paper\_exact} scheme?
+    \item Why are different clipping thresholds used for Sentinel-1 VV ($-25\text{ dB}$) and VH ($-35\text{ dB}$)?
+    \item A raw Sentinel-2 pixel in band \texttt{B08} has a Digital Number of $3{,}450$. What is its surface reflectance $\rho$?
+\end{enumerate}
+
+\subsection*{Solutions}
+\begin{enumerate}
+    \item Clamping $-42.0\text{ dB}$ to $[-35.0, 0.0]$ yields $-35.0\text{ dB}$. Normalized: $\frac{-35.0 + 35.0}{35.0} = 0.0$.
+    \item VH is a cross-polarized signal (vertical transmit, horizontal receive). Due to physical polarization depolarization losses in microwave backscattering, VH return signals are naturally $6\text{--}10\text{ dB}$ weaker than co-polarized VV returns. Lowering the minimum threshold to $-35\text{ dB}$ preserves subtle vegetation volume scattering that would otherwise be clipped out.
+    \item $\rho = \frac{3450}{10000.0} = 0.345$ (characteristic of moderate green vegetation canopy reflectance in NIR).
+\end{enumerate}

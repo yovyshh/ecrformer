@@ -1,0 +1,141 @@
+\chapter{Neural Networks From Scratch}
+\label{chap:ch04}
+
+\section{The Biological and Mathematical Artificial Neuron}
+An artificial neural network is a mathematical function that maps input vectors to output vectors through successive layers of linear transformations and non-linear activations.
+
+The fundamental computational unit is the \textbf{artificial neuron}. Given an input vector $\mathbf{x} = [x_1, x_2, \dots, x_n]^T$, the neuron computes a weighted sum, adds an adjustable scalar bias $b$, and passes the pre-activation through a non-linear activation function $\sigma(\cdot)$:
+\begin{equation}
+z = \sum_{i=1}^n w_i x_i + b = \mathbf{w}^T \mathbf{x} + b
+\end{equation}
+\begin{equation}
+a = \sigma(z)
+\end{equation}
+\begin{itemize}
+    \item \textbf{Weights ($w_i$):} Control the sensitivity and importance of each input signal. A positive weight excites the neuron; a negative weight inhibits it.
+    \item \textbf{Bias ($b$):} Shifts the activation threshold independently of the inputs, allowing the neuron to activate even when inputs are zero.
+    \item \textbf{Activation Function ($\sigma$):} Introduces \textbf{non-linearity}. Without non-linear activations, stacking 100 neural network layers would mathematically collapse into a single matrix multiplication!
+\end{itemize}
+
+\section{Essential Non-Linear Activation Functions}
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabularx}{\textwidth}{lp{3.5cm}p{3.5cm}X}
+\toprule
+\textbf{Function} & \textbf{Mathematical Formula} & \textbf{Output Range} & \textbf{Role in Satellite Vision} \\
+\midrule
+\textbf{ReLU} & $\max(0, z)$ & $[0, \infty)$ & Standard hidden layer activation; fast and avoids vanishing gradients for positive inputs. \\
+\textbf{LeakyReLU} & $\max(\alpha z, z)$ ($\alpha=0.2$) & $(-\infty, \infty)$ & Used extensively in PatchGAN discriminators to prevent dead neurons when $z < 0$. \\
+\textbf{GELU} & $z \cdot \Phi(z) \approx z \cdot \sigma(1.702z)$ & $[-0.17, \infty)$ & Smooth probabilistic activation used in modern vision transformers and ECRformer blocks. \\
+\textbf{Sigmoid} & $\frac{1}{1 + e^{-z}}$ & $(0, 1)$ & Compresses outputs into probabilities; ideal for soft cloud mask gates and attention weights. \\
+\textbf{Tanh} & $\frac{e^z - e^{-z}}{e^z + e^{-z}}$ & $(-1, 1)$ & Zero-centered non-linearity often used when normalizing optical ranges to $[-1, 1]$. \\
+\bottomrule
+\end{tabularx}
+\caption{Non-linear activation functions used across the ECRformer architecture and loss discriminators.}
+\label{tab:activations}
+\end{table}
+
+\section{Forward and Backward Propagation: A Complete Numerical Example}
+Let us trace a concrete, end-to-end numerical calculation through a tiny artificial neuron to demystify how backpropagation and gradient descent work.
+
+\begin{mathbox}{Worked End-to-End Numerical Example}
+\textbf{Initial Setup:}
+\begin{itemize}
+    \item Input value: $x = 2.0$
+    \item True ground-truth target: $y^* = 1.0$
+    \item Initial weight: $w = 0.5$
+    \item Initial bias: $b = 0.0$
+    \item Learning rate: $\eta = 0.1$
+    \item Loss function: Mean Squared Error (MSE), $\mathcal{L} = \frac{1}{2}(a - y^*)^2$
+    \item Activation: Linear identity for simplicity ($\sigma(z) = z$, so $a = z$).
+\end{itemize}
+
+\textbf{Step 1: Forward Pass (Compute Prediction and Loss)}
+\[
+z = w \cdot x + b = (0.5)(2.0) + 0.0 = 1.0
+\]
+\[
+a = \sigma(z) = 1.0
+\]
+Suppose instead our initial weight was $w = 1.5$:
+\[
+z = (1.5)(2.0) + 0.0 = 3.0 \implies a = 3.0
+\]
+The error loss is:
+\[
+\mathcal{L} = \frac{1}{2}(3.0 - 1.0)^2 = \frac{1}{2}(2.0)^2 = 2.0
+\]
+
+\textbf{Step 2: Backward Pass (Chain Rule Derivatives)}
+We wish to know how much $\mathcal{L}$ changes when $w$ changes: $\frac{\partial \mathcal{L}}{\partial w}$.
+By the calculus Chain Rule:
+\[
+\frac{\partial \mathcal{L}}{\partial w} = \frac{\partial \mathcal{L}}{\partial a} \cdot \frac{\partial a}{\partial z} \cdot \frac{\partial z}{\partial w}
+\]
+Evaluating each partial derivative:
+\begin{enumerate}
+    \item Loss derivative with respect to output: $\frac{\partial \mathcal{L}}{\partial a} = (a - y^*) = (3.0 - 1.0) = +2.0$
+    \item Activation derivative: $\frac{\partial a}{\partial z} = 1.0$
+    \item Pre-activation derivative with respect to weight: $\frac{\partial z}{\partial w} = x = 2.0$
+\end{enumerate}
+Multiplying them together:
+\[
+\frac{\partial \mathcal{L}}{\partial w} = (+2.0) \times (1.0) \times (2.0) = +4.0
+\]
+Similarly, for the bias $b$:
+\[
+\frac{\partial \mathcal{L}}{\partial b} = \frac{\partial \mathcal{L}}{\partial a} \cdot \frac{\partial a}{\partial z} \cdot \frac{\partial z}{\partial b} = (+2.0) \times (1.0) \times (1.0) = +2.0
+\]
+
+\textbf{Step 3: Parameter Update (Gradient Descent)}
+We adjust parameters in the opposite direction of the gradient to reduce loss:
+\[
+w_{\text{new}} = w_{\text{old}} - \eta \frac{\partial \mathcal{L}}{\partial w} = 1.5 - (0.1)(+4.0) = 1.5 - 0.4 = 1.1
+\]
+\[
+b_{\text{new}} = b_{\text{old}} - \eta \frac{\partial \mathcal{L}}{\partial b} = 0.0 - (0.1)(+2.0) = -0.2
+\]
+
+\textbf{Step 4: Verification (New Forward Pass)}
+With updated parameters:
+\[
+z_{\text{new}} = (1.1)(2.0) + (-0.2) = 2.2 - 0.2 = 2.0
+\]
+\[
+\mathcal{L}_{\text{new}} = \frac{1}{2}(2.0 - 1.0)^2 = \frac{1}{2}(1.0)^2 = 0.5
+\]
+The loss plummeted from $2.0 \to 0.5$ in a single gradient step!
+\end{mathbox}
+
+\section{From a Single Neuron to ECRformer}
+In ECRformer-Light, there are not 2 parameters, but \textbf{3,619,070} trainable parameters. However, the governing mathematical principle is identical:
+\begin{enumerate}
+    \item High-dimensional tensors flow forward through millions of matrix operations.
+    \item A scalar composite loss measures the discrepancy against clear-sky Sentinel-2 targets.
+    \item PyTorch's automatic differentiation engine traverses the computational graph in reverse, calculating $\frac{\partial \mathcal{L}}{\partial \theta_i}$ for all 3.6 million parameters simultaneously using the Chain Rule.
+    \item The AdamW optimizer updates all weights to iteratively reduce cloud reconstruction artifacts.
+\end{enumerate}
+
+\section{Summary of Chapter 4}
+\begin{enumerate}
+    \item Artificial neurons compute affine transformations $\mathbf{w}^T\mathbf{x} + b$ followed by non-linear activations.
+    \item Without non-linear activations (such as ReLU, GELU, or LeakyReLU), multi-layer networks cannot model non-linear physical phenomena.
+    \item The Chain Rule enables calculating exact partial derivatives of the scalar loss with respect to every internal weight.
+    \item Gradient descent subtracts a fraction of the gradient ($\eta \nabla_\theta \mathcal{L}$) to drive errors downward.
+    \item Modern vision architectures scale this exact mechanism to millions of coupled parameters.
+\end{enumerate}
+
+\section{Practice Exercises}
+\begin{enumerate}
+    \item If a neuron has weight $w = 2.0$, bias $b = -1.0$, and receives input $x = 3.0$, what is the output $a$ if the activation is $\text{ReLU}(z)$?
+    \item If the gradient $\frac{\partial \mathcal{L}}{\partial w} = -3.5$ and the learning rate is $\eta = 0.01$, does the weight increase or decrease after the optimizer step? Calculate the change $\Delta w$.
+    \item Why does the Sigmoid activation saturate (causing vanishing gradients) when input values $|z|$ are very large?
+\end{enumerate}
+
+\subsection*{Solutions}
+\begin{enumerate}
+    \item $z = (2.0)(3.0) + (-1.0) = 6.0 - 1.0 = 5.0$. $\text{ReLU}(5.0) = \max(0, 5.0) = 5.0$.
+    \item The weight increases. $\Delta w = -\eta \frac{\partial \mathcal{L}}{\partial w} = -(0.01)(-3.5) = +0.035$.
+    \item As $z \to \pm\infty$, the Sigmoid curve becomes essentially horizontal ($\sigma(z) \to 1.0$ or $0.0$). The derivative $\sigma'(z) = \sigma(z)(1 - \sigma(z))$ approaches $0.0$, multiplying upstream gradients by near-zero and preventing preceding layers from learning.
+\end{enumerate}

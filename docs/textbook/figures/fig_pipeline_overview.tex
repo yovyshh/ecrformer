@@ -1,0 +1,41 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    font=\footnotesize\sffamily,
+    stage/.style={draw=black!75, thick, rounded corners=4pt, minimum width=3.4cm, minimum height=1.1cm, align=center},
+    data/.style={stage, fill=blue!12},
+    prep/.style={stage, fill=teal!14},
+    model/.style={stage, fill=violet!14},
+    loss/.style={stage, fill=orange!18},
+    eval/.style={stage, fill=green!16},
+    arrow/.style={-Stealth, thick, draw=black!75}
+]
+% Row 1: Data & Preprocessing
+\node[data] (npz) at (0, 4.2) {\textbf{1. Cached \texttt{.npz} Files}\\\scriptsize \texttt{s2\_cloudy}, \texttt{s2\_clear}, \texttt{s1}, \texttt{mask}\\33,468 Train / 1,115 Val / 151 Test};
+\node[prep] (norm) at (4.4, 4.2) {\textbf{2. On-the-Fly Prep}\\\scriptsize S1: \texttt{paper\_exact} dB $\to [0,1]$\\\scriptsize Mask: Pool9 $\to$ Dilate5 $\to$ Blur11};
+\node[prep] (aug) at (8.8, 4.2) {\textbf{3. Augmentation}\\\scriptsize Flip / $90^\circ$ Rot + Opaque\\\scriptsize Cloud Core Cutout ($p=0.65$)};
+
+% Row 2: Model Forward Pass
+\node[model] (stem) at (8.8, 2.2) {\textbf{4. Decoupled Stem}\\\scriptsize S1 ($2\to 16$) $\oplus$ S2+M ($5\to 16$)\\\scriptsize Output: $[B, 32, H, W]$};
+\node[model] (unet) at (4.4, 2.2) {\textbf{5. ECRformer U-Net}\\\scriptsize 3 Enc + Restormer Bottleneck\\\scriptsize + 3 Dec (MDTA+MDWA+CBAM)};
+\node[model] (blend) at (0, 2.2) {\textbf{6. Output \& Soft Blend}\\\scriptsize $\mathbf{P}_{\text{dir}} = \text{Conv}_{64\to 4}(\mathbf{F}_{\text{dec}})$\\\scriptsize $\hat{\mathbf{Y}} = (1-\mathbf{M})\mathbf{X}_{S2} + \mathbf{M}\mathbf{P}_{\text{dir}}$};
+
+% Row 3: Loss, Backprop, Validation
+\node[loss] (losses) at (0, 0.2) {\textbf{7. Composite Losses}\\\scriptsize Scale-Decoupled $L_1$ + SDFL Aux\\\scriptsize + VGG16/Grad/Std + 11-Ch GAN};
+\node[loss] (optim) at (4.4, 0.2) {\textbf{8. Backprop \& EMA}\\\scriptsize AdamW ($2\times$ LR on SAR stem)\\\scriptsize GradClip $1.0$ + EMA ($\beta=0.999$)};
+\node[eval] (val) at (8.8, 0.2) {\textbf{9. Val \& Inference}\\\scriptsize EMA Weights $\to$ Heavy-Cloud\\\scriptsize PSNR / SSIM / Detail Ratio};
+
+% Arrows
+\draw[arrow] (npz) -- (norm);
+\draw[arrow] (norm) -- (aug);
+\draw[arrow] (aug) -- (stem);
+\draw[arrow] (stem) -- (unet);
+\draw[arrow] (unet) -- (blend);
+\draw[arrow] (blend) -- (losses);
+\draw[arrow] (losses) -- (optim);
+\draw[arrow] (optim) -- (val);
+
+\end{tikzpicture}
+\caption{Complete end-to-end training, validation, and inference workflow verified across \texttt{data/cache\_dataset.py}, \texttt{models/ecrformer\_adapted.py}, and \texttt{train\_ecrformer\_v4\_gan.py}.}
+\label{fig:pipeline_overview}
+\end{figure}

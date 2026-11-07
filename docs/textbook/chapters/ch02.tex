@@ -1,0 +1,114 @@
+\chapter{Understanding Satellite Image Bands and Tensors}
+\label{chap:ch02}
+
+\section{Multispectral Bands: Beyond Human Vision}
+Human vision is trichromatic: our retinas contain photoreceptor cone cells sensitive to Red ($\approx 650\text{ nm}$), Green ($\approx 550\text{ nm}$), and Blue ($\approx 450\text{ nm}$) wavelengths. When viewing a digital photograph on a computer screen, each pixel is composed of these three primary additive channels (RGB).
+
+Earth observation satellites, however, are not constrained by human biology. The Sentinel-2 Multispectral Instrument records radiation across 13 distinct bands, capturing crucial non-visible electromagnetic spectra:
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabularx}{\textwidth}{llccX}
+\toprule
+\textbf{Band} & \textbf{Band Name} & \textbf{Center $\lambda$ (nm)} & \textbf{Resolution} & \textbf{Primary Physical Role} \\
+\midrule
+\texttt{B02} & Blue & 490 & 10 m & Atmosphere/aerosol scattering, clear water bodies \\
+\texttt{B03} & Green & 560 & 10 m & Vegetation peak green reflectance, plant health \\
+\texttt{B04} & Red & 665 & 10 m & Chlorophyll absorption in healthy vegetation \\
+\texttt{B08} & Near-Infrared (NIR) & 842 & 10 m & Internal leaf cellular structure reflectance, water boundaries \\
+\bottomrule
+\end{tabularx}
+\caption{The four 10-meter spatial resolution optical bands utilized in this project from Sentinel-2 Level-1C/2A products.}
+\label{tab:s2_bands}
+\end{table}
+
+\subsection{Why the Near-Infrared (NIR) Band is Essential}
+In the visible spectrum, healthy green leaves appear green because chlorophyll pigments absorb Red (\texttt{B04}) and Blue (\texttt{B02}) light to power photosynthesis, while reflecting a modest fraction of Green (\texttt{B03}) light ($\approx 10\text{--}15\%$).
+
+In the Near-Infrared spectrum (\texttt{B08}), however, spongy mesophyll cells inside healthy leaves reflect up to $50\text{--}60\%$ of incoming radiation to prevent thermal overheating. Water bodies, on the other hand, absorb almost $100\%$ of NIR radiation, appearing jet black. Including \texttt{B08} allows our neural network to:
+\begin{enumerate}
+    \item Compute the Normalized Difference Vegetation Index: $\text{NDVI} = \frac{\text{B08} - \text{B04}}{\text{B08} + \text{B04}}$.
+    \item Reliably distinguish vegetated crops from bare soil, and water coastlines from land, even when haze distorts visible colors.
+\end{enumerate}
+
+\section{From Photons to Digital Tensors}
+When satellite sensors measure surface radiance, the values are initially recorded as integer \textbf{Digital Numbers} (DN). In Sentinel-2 processing pipelines:
+\begin{equation}
+\rho = \frac{\text{DN}}{10000.0}
+\end{equation}
+where $\rho \in [0, 1]$ represents dimensionless \textbf{Bottom-of-Atmosphere (BOA) Surface Reflectance}. A value of $0.0$ means total absorption, while $1.0$ represents total reflection.
+
+\section{The Multimodal Input Tensor: \texorpdfstring{$[B, C, H, W]$}{[B, C, H, W]}}
+In PyTorch and modern deep learning frameworks, multidimensional arrays of numbers are called \textbf{tensors}. Image batches are organized using the standard \textbf{channel-first} layout:
+\begin{equation}
+\mathbf{X} \in \mathbb{R}^{B \times C \times H \times W}
+\end{equation}
+Let us break down each dimension for our concrete project tensor: $[2, 7, 128, 128]$.
+
+\input{figures/fig_tensor_layout}
+
+\begin{itemize}
+    \item \textbf{Batch Size ($B = 2$):} The number of independent geographical image patches processed concurrently in a single forward/backward pass on the GPU. Processing multiple patches simultaneously stabilizes gradient estimates.
+    \item \textbf{Channels ($C = 7$):} The number of stacked physical feature maps:
+    \begin{itemize}
+        \item \texttt{Channel 0}: Sentinel-1 SAR VV backscatter, normalized to $[0, 1]$.
+        \item \texttt{Channel 1}: Sentinel-1 SAR VH backscatter, normalized to $[0, 1]$.
+        \item \texttt{Channel 2}: Sentinel-2 Red band (\texttt{B04}), reflectance in $[0, 1]$.
+        \item \texttt{Channel 3}: Sentinel-2 Green band (\texttt{B03}), reflectance in $[0, 1]$.
+        \item \texttt{Channel 4}: Sentinel-2 Blue band (\texttt{B02}), reflectance in $[0, 1]$.
+        \item \texttt{Channel 5}: Sentinel-2 Near-Infrared band (\texttt{B08}), reflectance in $[0, 1]$.
+        \item \texttt{Channel 6}: Cloud Mask $\mathbf{M} \in [0, 1]$, where $1.0$ denotes thick cloud and $0.0$ denotes clear sky.
+    \end{itemize}
+    \item \textbf{Height ($H = 128$) and Width ($W = 128$):} The spatial dimensions of each patch. At 10 meters per pixel, a $128 \times 128$ patch covers exactly $1.28\text{ km} \times 1.28\text{ km} = 1.6384\text{ km}^2$ of the Earth's surface!
+\end{itemize}
+
+\begin{mathbox}{Memory Footprint Calculation for a Batch}
+How much VRAM does a single input batch consume?
+For a single-precision 32-bit floating point tensor (\texttt{torch.float32}, 4 bytes per float):
+\[
+\text{Total elements} = B \times C \times H \times W = 2 \times 7 \times 128 \times 128 = 229{,}376\text{ floats}
+\]
+\[
+\text{Memory (bytes)} = 229{,}376 \times 4\text{ bytes} = 917{,}504\text{ bytes} \approx 0.875\text{ MB}
+\]
+While the input itself is small ($<1\text{ MB}$), intermediate activations generated during transformer attention across multiple layers expand the GPU memory requirements during training to several gigabytes.
+\end{mathbox}
+
+\begin{codebox}{Tensor Slicing in \texttt{models/ecrformer\_adapted.py}}
+In our verified implementation, the model receives this 7-channel tensor and splits it internally inside \texttt{ECRformerAdaptedModel.forward()}:
+\begin{lstlisting}[language=Python]
+# S1 SAR channels (Indices 0 and 1)
+s1 = x[:, 0:2, :, :]          # Shape: [B, 2, H, W]
+
+# Cloudy S2 optical channels (Indices 2, 3, 4, 5)
+s2_cloudy = x[:, 2:6, :, :]   # Shape: [B, 4, H, W]
+
+# Cloud mask channel (Index 6)
+mask = x[:, 6:7, :, :]        # Shape: [B, 1, H, W]
+\end{lstlisting}
+Notice how clean Python array slicing preserves the separate physical modalities for specialized sub-networks!
+\end{codebox}
+
+\section{Summary of Chapter 2}
+\begin{enumerate}
+    \item Sentinel-2 provides multispectral data; our project utilizes Red (\texttt{B04}), Green (\texttt{B03}), Blue (\texttt{B02}), and Near-Infrared (\texttt{B08}) at 10 m resolution.
+    \item Near-Infrared is vital for mapping vegetation vitality and sharp water boundaries that are hidden by clouds.
+    \item Input data is formatted as a 4-dimensional tensor $[B, C, H, W]$ in channel-first format.
+    \item The 7 channels consist of 2 SAR channels (VV, VH), 4 optical channels (RGB+NIR), and 1 cloud mask channel.
+    \item Each $128 \times 128$ patch spans $1.64\text{ km}^2$ of terrain on Earth.
+\end{enumerate}
+
+\section{Practice Exercises}
+\begin{enumerate}
+    \item Calculate the total number of numbers in a tensor of shape $[4, 7, 256, 256]$.
+    \item Why does a clear water lake appear dark in the Near-Infrared band (\texttt{B08}) but bright in the Blue band (\texttt{B02})?
+    \item Write the PyTorch slicing syntax to extract only the Near-Infrared channel from an input tensor \texttt{x} of shape $[B, 7, H, W]$.
+\end{enumerate}
+
+\subsection*{Solutions}
+\begin{enumerate}
+    \item $4 \times 7 \times 256 \times 256 = 1{,}835{,}008$ numbers (approx $7.0\text{ MB}$ in float32).
+    \item Liquid water absorbs long-wavelength near-infrared photons almost entirely (reflectance $\approx 0$), making lakes appear black in \texttt{B08}. Shorter blue wavelengths penetrate water or scatter off surface molecules, yielding measurable reflectance in \texttt{B02}.
+    \item \texttt{nir = x[:, 5:6, :, :]} (or \texttt{x[:, 5, :, :]} to drop the channel dimension).
+\end{enumerate}

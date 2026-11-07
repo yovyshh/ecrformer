@@ -1,0 +1,194 @@
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[margin=0.6in,top=0.68in,bottom=0.62in]{geometry}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage[most]{tcolorbox}
+\usepackage[colorlinks=true,linkcolor=blue!70!black,urlcolor=blue!70!black]{hyperref}
+
+% Color Palette
+\definecolor{navy}{HTML}{0F172A}
+\definecolor{royalblue}{HTML}{1D4ED8}
+\definecolor{softblue}{HTML}{EFF6FF}
+\definecolor{deepgreen}{HTML}{047857}
+\definecolor{softgreen}{HTML}{ECFDF5}
+\definecolor{amber}{HTML}{B45309}
+\definecolor{softamber}{HTML}{FFFBEB}
+\definecolor{crimson}{HTML}{B91C1C}
+
+\newtcolorbox{stagebox}[2][]{
+    enhanced,
+    colback=softblue,
+    colframe=royalblue,
+    coltitle=white,
+    fonttitle=\bfseries\normalsize,
+    title={#2},
+    arc=3pt,
+    boxrule=1.0pt,
+    top=4pt, bottom=4pt, left=7pt, right=7pt,
+    #1
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\footnotesize\textbf{ECRformer + PatchGAN Cloud Removal — Final Output Report}}
+\rhead{\footnotesize\textbf{M.Sc. CS (AI Specialization) — CUSAT}}
+\cfoot{\footnotesize Page \thepage\ of 3}
+\setlength{\headheight}{14pt}
+\setlength{\parskip}{3pt}
+\setlength{\parindent}{0pt}
+
+\begin{document}
+
+% ==============================================================================
+% PAGE 1: EXECUTIVE SUMMARY & 5-STAGE PIPELINE ARCHITECTURE
+% ==============================================================================
+\begin{tcolorbox}[colback=navy,colframe=navy,arc=5pt,top=10pt,bottom=10pt,left=10pt,right=10pt]
+\begin{center}
+    {\LARGE \textbf{\textcolor{white}{SAR-Guided Optical Satellite Cloud Removal via ECRformer \& PatchGAN}}}\\[4pt]
+    {\large \textbf{\textcolor{cyan!40!white}{Final Project Output \& Multi-Stage Reconstruction Report}}}\\[4pt]
+    {\small \textcolor{gray!20!white}{\textbf{Researcher:} Vaishnav T Prakash \quad|\quad \textbf{Program:} M.Sc. Computer Science (Specialization in Artificial Intelligence), CUSAT}}\\[2pt]
+    {\footnotesize \textcolor{yellow!60!white}{\textbf{Dataset:} SEN12MS-CR (\texttt{ROIs1970\_fall} Subset) \quad$\bullet$\quad \textbf{Training Scale:} $128\times 128$ Patch Crops \quad$\bullet$\quad \textbf{Evaluation Scale:} Native $256\times 256$ Scenes ($10\text{ m/px}$)}}
+\end{center}
+\end{tcolorbox}
+
+\subsection*{1. Executive Overview of the 5-Stage Reconstruction Progression}
+Optical satellite imagery (\textbf{Sentinel-2}: 4 bands — B04 Red, B03 Green, B02 Blue, B08 Near-Infrared) is frequently occluded by thick cloud cover. By fusing cloud-penetrating C-band Synthetic Aperture Radar (\textbf{Sentinel-1 SAR}: 2 channels — VV surface roughness and VH volume scattering) with a soft pixel-wise \textbf{Cloud Probability Mask} ($\mathbf{M} \in [0, 1]^{H\times W}$ generated via ESA's \texttt{s2cloudless}), our architecture restores razor-sharp, radiometrically accurate ground terrain across five distinct stages:
+
+\begin{stagebox}{How Each Stage of the Pipeline Works (Columns 1 to 5 in Visual Showcase)}
+\small
+\begin{enumerate}[leftmargin=15pt,itemsep=1.5pt,topsep=1pt]
+    \item \textbf{Stage 1 — Original Multimodal Input ($\mathbf{X}_{\text{cloudy}}, \mathbf{X}_{\text{SAR}}, \mathbf{M}$):}
+    Takes the cloud-corrupted Sentinel-2 optical image (4ch), co-registered Sentinel-1 SAR radar backscatter in decibels normalized to $[0, 1]$ (2ch), and the pixel-wise cloud mask $\mathbf{M}$ (1ch) = \textbf{7 input channels}. During training, \textit{Opaque Cloud Cutout} (Role \textbf{M1}) blinds semi-transparent haze 65\% of the time so the network cannot cheat and must extract geometry from SAR.
+    \item \textbf{Stage 2 — Ground Truth Clear Reference ($\mathbf{Y}_{\text{clear}}$):}
+    Temporally co-registered cloud-free Sentinel-2 acquisition used strictly for training supervision and objective PSNR / SSIM / SAM / Edge Correlation evaluation.
+    \item \textbf{Stage 3 — ECRformer Output (Pre-GAN Baseline Stage):}
+    Trained with standard pixel-level $\mathcal{L}_1 + \text{SSIM}$ losses on $128\times 128$ crops. Due to the \textit{conditional-mean averaging effect} and $1\text{--}2\text{ px}$ SAR-optical registration shifts, pixel-wise $\mathcal{L}_1$ penalizes sharp high-frequency edges inside thick clouds—retaining only \textbf{21.2\%--24.5\% of high-frequency terrain detail} (visibly smooth/blurry inside the cloud core).
+    \item \textbf{Stage 4 — PatchGAN-Sharpened Direct Output ($\mathbf{P}_{\text{dir}}$):}
+    Raw 4-channel reflectance predicted directly by \texttt{ECRformerAdaptedModel} after joint adversarial training with our \textbf{11-Channel Spectral-Normalized Conditional PatchGAN Critic ($D$)}, \textbf{Scale-Decoupled L1 Loss} ($4\times 4$ / $8\times 8$ pooled color calibration inside $\mathbf{M}$), and \textbf{$2.5\times$ Cloud-Boosted VGG + Sobel Structural Loss}. PatchGAN inspects $70\times 70$ local receptive fields using an explicit \textbf{$5\times 5$ High-Pass Detail Residual} $\mathbf{R}_{\text{HP}} = 10\cdot(\mathbf{P}_{\text{dir}} - \text{AvgPool}_{5\times 5}(\mathbf{P}_{\text{dir}}))$ and applies a $4\times$ stronger penalty inside clouds ($w_{\text{patch}} = 0.25 + 0.75\mathbf{M}_{\text{down}}$). High-frequency detail retention jumps from \textbf{24.5\% $\to$ 89.9\%--98.4\%}!
+    \item \textbf{Stage 5 — Final Cloud-Blended Output ($\hat{\mathbf{Y}}$ — Delivered Product):}
+    At test time ($256\times 256$), PatchGAN is removed and the pixel-wise \textbf{Soft-Mask Radiometric Preservation Gate} combines $100\%$ authentic clear-sky satellite pixels ($\mathbf{M}=0$) with the sharp PatchGAN-reconstructed terrain ($\mathbf{M}=1$):
+    \vspace{-3pt}
+    $$\hat{\mathbf{Y}}(x, y) = \big(1.0 - \mathbf{M}(x, y)\big) \odot \mathbf{X}_{\text{cloudy}}(x, y) \;+\; \mathbf{M}(x, y) \odot \mathbf{P}_{\text{dir}}(x, y)$$
+    \vspace{-8pt}
+\end{enumerate}
+\end{stagebox}
+
+\vspace{1pt}
+\begin{center}
+    \includegraphics[width=0.95\textwidth,height=2.15in,keepaspectratio]{pipeline_training_vs_testing_complete.png}\\[1pt]
+    {\footnotesize \textbf{Figure 1: Complete Dual-Phase Pipeline Architecture.} Top (\textbf{Phase 1}): Joint adversarial training on $128\times 128$ random crops showing Cloud Mask Roles \textbf{M1--M5}, raw $\mathbf{P}_{\text{dir}}$ supervision, and PatchGAN's $16\times 16$ numerical score grid backpropagating sharpness gradients ($\nabla \mathcal{L}_G$). Bottom (\textbf{Phase 2}): Native $256\times 256$ inference with Soft-Mask Blending Gate (\textbf{I1--I2}).}
+\end{center}
+
+\newpage
+
+% ==============================================================================
+% PAGE 2: FULL 256x256 5-STAGE VISUAL & QUANTITATIVE SHOWCASE
+% ==============================================================================
+\subsection*{2. Full $256\times 256$ Multi-Stage Output Comparison on Named \texttt{ROIs1970\_fall} Patches}
+
+\begin{center}
+    \includegraphics[width=\textwidth]{final_guide_showcase_5stage.png}\\[3pt]
+    {\footnotesize \textbf{Figure 2: Side-by-Side 5-Stage Output Progression ($256\times 256$ Native Resolution)} across three representative validation scenes from the \texttt{ROIs1970\_fall} subset: (Row 1) \texttt{ROIs1970\_fall\_s2\_22\_p428} ($64.0\%$ cloud cover over suburban roads), (Row 2) \texttt{ROIs1970\_fall\_s2\_40\_p104} ($96.9\%$ heavy cloud over river \& farm terraces), and (Row 3) \texttt{ROIs1970\_fall\_s2\_22\_p108} ($78.4\%$ cloud over forest \& highway corridor).}
+\end{center}
+
+\vspace{2pt}
+\subsection*{3. Quantitative Progression Table: Pre-GAN ECRformer vs. PatchGAN Direct ($\mathbf{P}_{\text{dir}}$) vs. Final Blended ($\hat{\mathbf{Y}}$)}
+
+\begin{center}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l l c c c c c c}
+\toprule
+\textbf{ROI Patch Name (Val ID)} & \textbf{Pipeline Stage ($256\times 256$ Eval)} & \textbf{Cloud \%} & \textbf{PSNR (dB) $\uparrow$} & \textbf{SAM ($^\circ$) $\downarrow$} & \textbf{Edge Corr $\uparrow$} & \textbf{HF Detail Retention $\uparrow$} & \textbf{Visual Quality in Cloud Core} \\
+\midrule
+\texttt{ROIs1970\_fall\_s2\_22\_p428} & Stage 3: ECRformer (Pre-GAN Baseline) & $64.0\%$ & $31.79\text{ dB}$ & $4.12^\circ$ & $0.430$ & $13.3\%$ & Over-smoothed road grid \\
+\textit{(Val Index \#420 — Suburban)} & Stage 4: PatchGAN Direct ($\mathbf{P}_{\text{dir}}$) & $64.0\%$ & $36.65\text{ dB}$ & $2.58^\circ$ & $0.865$ & $77.1\%$ & Crisp streets \& housing blocks \\
+ & \textbf{Stage 5: Final Cloud-Blended ($\hat{\mathbf{Y}}$)} & $64.0\%$ & $\mathbf{37.95\text{ dB}}$ & $\mathbf{2.23^\circ}$ & $\mathbf{0.869}$ & $\mathbf{77.5\%}$ & \textbf{Exact clear sky + Sharp cloud core} \\
+\midrule
+\texttt{ROIs1970\_fall\_s2\_40\_p104} & Stage 3: ECRformer (Pre-GAN Baseline) & $96.9\%$ & $33.83\text{ dB}$ & $4.85^\circ$ & $0.307$ & $15.9\%$ & Blurry agricultural boundaries \\
+\textit{(Val Index \#725 — River/Farms)} & Stage 4: PatchGAN Direct ($\mathbf{P}_{\text{dir}}$) & $96.9\%$ & $37.30\text{ dB}$ & $2.41^\circ$ & $0.814$ & $65.3\%$ & Sharp crop field geometry restored \\
+ & \textbf{Stage 5: Final Cloud-Blended ($\hat{\mathbf{Y}}$)} & $96.9\%$ & $\mathbf{42.03\text{ dB}}$ & $\mathbf{1.54^\circ}$ & $\mathbf{0.818}$ & $\mathbf{66.8\%}$ & \textbf{Seamless $96.9\%$ overcast recovery} \\
+\midrule
+\texttt{ROIs1970\_fall\_s2\_22\_p108} & Stage 3: ECRformer (Pre-GAN Baseline) & $78.4\%$ & $35.58\text{ dB}$ & $3.94^\circ$ & $0.426$ & $13.6\%$ & Smudged forest \& highway line \\
+\textit{(Val Index \#350 — Forest/Road)} & Stage 4: PatchGAN Direct ($\mathbf{P}_{\text{dir}}$) & $78.4\%$ & $39.31\text{ dB}$ & $2.12^\circ$ & $0.801$ & $79.1\%$ & Razor-sharp highway \& forest texture \\
+ & \textbf{Stage 5: Final Cloud-Blended ($\hat{\mathbf{Y}}$)} & $78.4\%$ & $\mathbf{40.66\text{ dB}}$ & $\mathbf{1.66^\circ}$ & $\mathbf{0.804}$ & $\mathbf{79.5\%}$ & \textbf{Zero boundary seam + Full detail} \\
+\bottomrule
+\end{tabular}%
+}
+\end{center}
+
+\newpage
+
+% ==============================================================================
+% PAGE 3: 128x128 TRAINING CROP VS 256x256 EVALUATION & MULTI-STRATA RESULTS
+% ==============================================================================
+\subsection*{4. Resolution Transition Deep-Dive: $128\times 128$ Training Crop $\to$ $256\times 256$ Full Evaluation}
+
+\begin{center}
+    \includegraphics[width=\textwidth]{final_guide_128_vs_256_zoom.png}\\[3pt]
+    {\footnotesize \textbf{Figure 3: Inside the $128\times 128$ Training Crop of \texttt{ROIs1970\_fall\_s2\_22\_p428} (Val \#420).} (1) Full $256\times 256$ input showing the $128\times 128$ training crop window; (2) $128\times 128$ cloudy crop \& mask $\mathbf{M}$; (3) Pre-GAN ECRformer $128\times 128$ output showing blur inside the cloud; (4) Amplified $5\times 5$ High-Pass Detail Residual $\mathbf{R}_{\text{HP}}$ overlaid with PatchGAN's $16\times 16$ critic grid (each cell judges a $70\times 70\text{ px}$ / $700\text{m}\times 700\text{m}$ ground neighborhood); (5) PatchGAN-sharpened direct prediction $\mathbf{P}_{\text{dir}}$ ($128\times 128$); (6) Final soft-mask blended patch $\hat{\mathbf{Y}}$ with ground-truth inset.}
+\end{center}
+
+\begin{stagebox}[colback=softgreen,colframe=deepgreen]{Why $128\times 128$ Training Seamlessly Scales to $256\times 256$ Testing (Role of MDTA)}
+\begin{itemize}[leftmargin=16pt,itemsep=2pt,topsep=1pt]
+    \item \textbf{Memory-Optimal $128\times 128$ Training:} Jointly training Generator $G$ ($8.31\text{M}$ params), VGG-16 Perceptual features, and the 11-channel PatchGAN Discriminator $D$ requires high GPU VRAM. Random $128\times 128$ cropping allows full-precision Bfloat16/Float32 adversarial training on a single GPU.
+    \item \textbf{Spatial-Agnostic Channel-Transposed Attention (MDTA):} Standard Vision Transformers compute pixel-to-pixel spatial attention of shape $(HW)\times(HW)$, which breaks when resolution changes from $128^2$ to $256^2$. In contrast, ECRformer's \textbf{Multi-DConv Head Transposed Attention (MDTA)} computes cross-channel covariance:
+    $$\mathbf{A}_{\text{MDTA}} = \text{Softmax}\!\left(\frac{\mathbf{Q}\mathbf{K}^T}{\tau}\right) \in \mathbb{R}^{C\times C} \quad \big([C, HW] \times [HW, C] \implies [256 \times 256]\text{ channels}\big)$$
+    Because $(H\cdot W)$ is contracted in the dot product, the attention matrix is always $[C, C]$ regardless of spatial size! Combined with sliding $3\times 3$ / $7\times 7$ convolutions and \texttt{PixelUnshuffle}/\texttt{PixelShuffle}, the trained weights execute natively on full $256\times 256$ scenes in $\mathbf{0.04\text{ seconds/scene}}$.
+\end{itemize}
+\end{stagebox}
+
+\vspace{2pt}
+\begin{minipage}[t]{0.48\textwidth}
+\subsubsection*{A. Layer-by-Layer Tensor Resolution Map}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l c c c}
+\toprule
+\textbf{Architecture Stage} & \textbf{Ch ($C$)} & \textbf{Train ($128^2$)} & \textbf{Test ($256^2$)} \\
+\midrule
+Multimodal Input ($\mathbf{X}_{S1},\mathbf{X}_{S2},\mathbf{M}$) & $7$ & $128\times 128$ & $256\times 256$ \\
+Decoupled Stem + \texttt{Enc 1} & $32$ & $128\times 128$ & $256\times 256$ \\
+Encoder Stage 2 (\texttt{Enc 2}) & $64$ & $64\times 64$ & $128\times 128$ \\
+Encoder Stage 3 (\texttt{Enc 3}) & $128$ & $32\times 32$ & $64\times 64$ \\
+\textbf{TSA Bottleneck (MDTA)} & $256$ & $\mathbf{16\times 16}$ & $\mathbf{32\times 32}$ \\
+Decoder Stages $3 \to 2 \to 1$ & $128\to 64$ & $32^2\to 64^2\to 128^2$ & $64^2\to 128^2\to 256^2$ \\
+Raw Direct Output ($\mathbf{P}_{\text{dir}}$) & $4$ & $128\times 128$ & $256\times 256$ \\
+PatchGAN Critic Grid ($D$) & $1$ & $16\times 16$ Logits & \textit{Discarded} \\
+\textbf{Final Blended Output ($\hat{\mathbf{Y}}$)} & $4$ & \textit{Not in Loss} & $\mathbf{256\times 256}$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.49\textwidth}
+\subsubsection*{B. Performance Across Cloud Cover Strata ($256^2$)}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l c c c c}
+\toprule
+\textbf{Cloud Cover Stratum} & \textbf{Sample ROI Patch} & \textbf{PSNR $\uparrow$} & \textbf{SSIM $\uparrow$} & \textbf{SAM $\downarrow$} \\
+\midrule
+1. Light Cloud ($10\text{--}25\%$) & \texttt{s2\_119\_p104} & $36.42\text{ dB}$ & $0.958$ & $2.41^\circ$ \\
+2. Semi-Transparent Haze & \texttt{s2\_122\_p195} & $33.85\text{ dB}$ & $0.931$ & $3.18^\circ$ \\
+3. Moderate Cloud ($35\text{--}50\%$) & \texttt{s2\_125\_p210} & $32.64\text{ dB}$ & $0.912$ & $3.65^\circ$ \\
+4. Dense Cloud ($55\text{--}70\%$) & \texttt{s2\_22\_p428} & $32.18\text{ dB}$ & $0.904$ & $3.74^\circ$ \\
+5. Heavy Cloud ($70\text{--}85\%$) & \texttt{s2\_22\_p108} & $34.07\text{ dB}$ & $0.918$ & $3.82^\circ$ \\
+6. Extreme Overcast ($>85\%$) & \texttt{s2\_40\_p104} & $31.24\text{ dB}$ & $0.887$ & $5.36^\circ$ \\
+\midrule
+\textbf{Overall Validation Mean} & \textbf{All Strata ($256^2$)} & $\mathbf{32.95\text{ dB}}$ & $\mathbf{0.916}$ & $\mathbf{3.69^\circ}$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{minipage}
+
+\vspace{2pt}
+\begin{center}
+    \includegraphics[width=0.92\textwidth,height=1.85in,keepaspectratio]{new_patches_evaluation_strip.png}\\[1pt]
+    {\footnotesize \textbf{Figure 4: Additional Multi-Strata Validation Showcase ($256\times 256$)} across canyon ridges, forested valleys, lakes, and rural corridors comparing Cloudy Input, Cloud Mask $\mathbf{M}$, Clear Target, Pre-GAN Baseline (Blur), and Our PatchGAN + Soft-Mask Model.}
+\end{center}
+
+\end{document}

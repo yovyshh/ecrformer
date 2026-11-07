@@ -1,0 +1,101 @@
+\chapter{Cloud Masks and Mask-Guided Learning}
+\label{chap:ch08}
+
+\section{What is a Cloud Mask?}
+A cloud mask is a single-channel spatial map $\mathbf{M} \in \mathbb{R}^{1 \times H \times W}$ that indicates the spatial presence and optical density of clouds across an image patch:
+\begin{itemize}
+    \item $\mathbf{M}_{h,w} = 0.0$: The pixel is pristine, clear-sky ground surface.
+    \item $\mathbf{M}_{h,w} = 1.0$: The pixel is covered by an opaque cloud core.
+    \item $0.0 < \mathbf{M}_{h,w} < 1.0$: The pixel is covered by semi-transparent cloud boundaries, cirrus streamers, or atmospheric haze.
+\end{itemize}
+
+\section{The Three-Step Mask Refinement Pipeline}
+In our dataset cache, raw binary masks were initially detected using the gradient-boosted decision tree algorithm \texttt{s2cloudless}. However, raw detector masks frequently contain high-frequency false positives (such as bright sandy beaches or white buildings mistaken for clouds) and sharp, jagged cloud borders.
+
+In \texttt{data/cache\_dataset.py} (lines 84--97), our dataset loader applies an automated \textbf{3-step morphological and spatial refinement}:
+\begin{enumerate}
+    \item \textbf{Speckle Noise Removal ($9 \times 9$ Average Pooling):}
+    \begin{equation}
+    \mathbf{M}_{\text{clean}} = \mathbb{I}\left( \text{AvgPool}_{9\times 9}(\mathbf{M}_{\text{raw}}) > 0.5 \right)
+    \end{equation}
+    Isolated 1-pixel false detections vanish because their local $9 \times 9$ average is far below $0.5$.
+    \item \textbf{Morphological Dilation ($5 \times 5$ Max Pooling):}
+    \begin{equation}
+    \mathbf{M}_{\text{dilated}} = \text{MaxPool}_{5\times 5}(\mathbf{M}_{\text{clean}})
+    \end{equation}
+    Clouds cast faint shadows and diffuse penumbra haze around their edges. Dilating the mask by a 2-pixel radius ($5 \times 5$ kernel) ensures that faint transitional haze surrounding thick clouds is encompassed by the mask.
+    \item \textbf{Gaussian Softening ($11 \times 11$, $\sigma = 2.0$):}
+    \begin{equation}
+    \mathbf{M}_{\text{soft}} = \text{clip}\big(\mathbf{G}_{\sigma=2.0} * \mathbf{M}_{\text{dilated}}, 0.0, 1.0\big)
+    \end{equation}
+    This converts hard binary step edges ($0 \to 1$) into a smooth, continuous mathematical sigmoid-like transition over a width of $\approx 5\text{--}8$ pixels.
+\end{enumerate}
+
+\begin{warningbox}{Why Binary Masks Cause Border Seams}
+If a binary mask ($\mathbf{M} \in \{0, 1\}$) is used to stitch a neural network prediction into a clear image, a sharp mathematical cliff occurs at the boundary: pixel $(x, y)$ is pure original optical data, while neighbor $(x+1, y)$ is pure neural network prediction. Because lighting and atmospheric scattering differ slightly between the two dates, an unmistakable, artificial jagged seam is visible to human observers. The $11 \times 11$ Gaussian blur creates an imperceptible alpha-blend transition that eliminates seams completely!
+\end{warningbox}
+
+\section{The Three Critical Mask Roles: Never Confuse Them!}
+One of the most frequent misconceptions in deep learning satellite research is conflating the different ways a mask is used. Our codebase employs the mask in \textbf{three completely distinct roles}:
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabularx}{\textwidth}{lp{4.2cm}X}
+\toprule
+\textbf{Mask Role} & \textbf{Mathematical Equation} & \textbf{System Purpose} \\
+\midrule
+\textbf{1. Input Conditioning} & $\mathbf{X}_{\text{in}} = [\mathbf{X}_{\text{SAR}}, \mathbf{X}_{S2}, \mathbf{M}] \in \mathbb{R}^{7 \times H \times W}$ & Informs the encoder where optical data is reliable vs.\ corrupt, allowing attention layers to dynamically route features. \\
+\textbf{2. Loss Weighting} & $\mathcal{L}_{\text{cloud}} = \frac{\sum (\mathbf{M} \odot |\hat{\mathbf{Y}} - \mathbf{Y}^*|)}{\sum \mathbf{M} + \epsilon}$ & Directs backpropagation gradients to penalize reconstruction errors inside cloudy regions while ignoring clear terrain. \\
+\textbf{3. Output Soft Blending} & $\hat{\mathbf{Y}} = (1 - \mathbf{M}) \odot \mathbf{X}_{S2} + \mathbf{M} \odot \mathbf{P}_{\text{dir}}$ & Guarantees that clear-sky optical pixels are preserved with 100\% original fidelity and zero neural distortion. \\
+\bottomrule
+\end{tabularx}
+\caption{The three distinct roles of the cloud mask in ECRformer-Light.}
+\label{tab:mask_roles}
+\end{table}
+
+\begin{mathbox}{A $4 \times 4$ Soft-Blend Worked Example}
+Let us trace the soft-blending equation across a $1\text{D}$ slice of 4 adjacent pixels transitioning from clear sky into a thick cloud:
+\[
+\mathbf{M} = \begin{bmatrix} 0.00 & 0.25 & 0.75 & 1.00 \end{bmatrix} \quad (\text{Gaussian softened mask})
+\]
+Suppose the cloudy optical input is:
+\[
+\mathbf{X}_{S2} = \begin{bmatrix} 0.12 & 0.35 & 0.85 & 0.98 \end{bmatrix} \quad (\text{clear terrain } \to \text{ bright cloud})
+\]
+And the neural network's direct prediction $\mathbf{P}_{\text{dir}}$ reconstructed from radar is:
+\[
+\mathbf{P}_{\text{dir}} = \begin{bmatrix} 0.14 & 0.15 & 0.13 & 0.14 \end{bmatrix} \quad (\text{reconstructed underlying terrain})
+\]
+Evaluating the blended output $\hat{\mathbf{Y}} = (1 - \mathbf{M})\mathbf{X}_{S2} + \mathbf{M}\mathbf{P}_{\text{dir}}$:
+\begin{align*}
+\hat{\mathbf{Y}}_0 &= (1 - 0.00)(0.12) + (0.00)(0.14) = \mathbf{0.120} \quad (\text{100\% original ground truth preserved!}) \\
+\hat{\mathbf{Y}}_1 &= (1 - 0.25)(0.35) + (0.25)(0.15) = 0.2625 + 0.0375 = \mathbf{0.300} \\
+\hat{\mathbf{Y}}_2 &= (1 - 0.75)(0.85) + (0.75)(0.13) = 0.2125 + 0.0975 = \mathbf{0.310} \\
+\hat{\mathbf{Y}}_3 &= (1 - 1.00)(0.98) + (1.00)(0.14) = 0.000 + 0.140 = \mathbf{0.140} \quad (\text{100\% neural reconstruction})
+\end{align*}
+The transition is perfectly smooth and physically grounded!
+\end{mathbox}
+
+\section{Summary of Chapter 8}
+\begin{enumerate}
+    \item Cloud masks map spatial cloud probability, where $0.0 = \text{clear}$ and $1.0 = \text{cloudy}$.
+    \item A 3-step refinement pipeline (average pooling, max-pool dilation, Gaussian softening) eliminates speckle noise and hard boundary cliffs.
+    \item Input conditioning feeds the mask as channel 6, allowing self-attention to gauge optical reliability.
+    \item Loss weighting concentrates gradient updates on cloudy pixels.
+    \item Output soft blending guarantees zero modification of clear-sky pixels while seamlessly transitioning into reconstructed regions.
+\end{enumerate}
+
+\section{Practice Exercises}
+\begin{enumerate}
+    \item Why does applying a $5 \times 5$ max-pooling operation perform morphological dilation on a binary mask?
+    \item If the cloud mask has value $\mathbf{M} = 1.0$ at pixel $(i, j)$, how much does the original cloudy optical value $\mathbf{X}_{S2}(i, j)$ contribute to the final reconstructed output $\hat{\mathbf{Y}}(i, j)$?
+    \item What visual defect occurs if an unblurred binary mask is used for final output blending?
+\end{enumerate}
+
+\subsection*{Solutions}
+\begin{enumerate}
+    \item Max-pooling returns the maximum value in every $5 \times 5$ window. If even a single pixel in the window has value $1.0$ (cloud), the center pixel becomes $1.0$. This mathematically expands (dilates) the perimeter of cloud regions outward by $\lfloor 5/2 \rfloor = 2$ pixels.
+    \item Zero ($0\%$). When $\mathbf{M} = 1.0$, the weight on $\mathbf{X}_{S2}$ is $(1 - \mathbf{M}) = (1 - 1.0) = 0.0$. The output is $100\%$ derived from the neural network's direct prediction $\mathbf{P}_{\text{dir}}$.
+    \item An artificial, razor-sharp perimeter seam or "cookie-cutter" border appears around cloud edges, creating noticeable contrast discontinuities against surrounding clear terrain.
+\end{enumerate}

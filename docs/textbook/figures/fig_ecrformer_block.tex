@@ -1,0 +1,52 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    font=\footnotesize\sffamily,
+    mod/.style={draw=black!80, thick, rounded corners=4pt, minimum width=4.8cm, minimum height=0.9cm, align=center},
+    norm/.style={mod, fill=yellow!15},
+    attn/.style={mod, fill=cyan!15},
+    ffn/.style={mod, fill=green!15},
+    add/.style={draw=black!80, circle, thick, fill=gray!20, minimum size=0.55cm, inner sep=0pt},
+    arr/.style={draw=black!85, thick, -Stealth}
+]
+
+\node[font=\bfseries] (in) at (0, 7.5) {Input Feature Map $\mathbf{X} \in \mathbb{R}^{B \times C \times H \times W}$};
+
+% Sub-block 1: MDTA
+\node[norm] (ln1) at (0, 6.4) {$\text{LayerNorm}_{\text{Restormer}}(\mathbf{X})$};
+\node[attn] (mdta) at (0, 5.2) {\textbf{Transposed Attention (MDTA)}\\\scriptsize Channel-wise Cross-Covariance $\mathbb{R}^{C \times C}$};
+\node[add] (sum1) at (0, 4.0) {$+$};
+
+% Sub-block 2: MDWA
+\node[norm] (ln2) at (0, 2.9) {$\text{LayerNorm}_{\text{Restormer}}(\mathbf{X}_1)$};
+\node[attn] (mdwa) at (0, 1.7) {\textbf{Multi-Dilated Window Attention (MDWA)}\\\scriptsize Local Windows with Dilation Rates $[1, 2, \dots]$};
+\node[add] (sum2) at (0, 0.5) {$+$};
+
+% Sub-block 3: GDFN
+\node[norm] (ln3) at (0, -0.6) {$\text{LayerNorm}_{\text{Restormer}}(\mathbf{X}_2)$};
+\node[ffn] (gdfn) at (0, -1.8) {\textbf{Gated Feed-Forward Network (GDFN)}\\\scriptsize Depthwise $3\times 3$ Conv $\otimes$ GELU Linear Projection};
+\node[add] (sum3) at (0, -3.0) {$+$};
+
+\node[font=\bfseries] (out) at (0, -4.1) {Output Feature Map $\mathbf{Y} \in \mathbb{R}^{B \times C \times H \times W}$};
+
+% Main flow arrows
+\draw[arr] (in) -- (ln1);
+\draw[arr] (ln1) -- (mdta);
+\draw[arr] (mdta) -- (sum1) node[midway, right=3pt, font=\scriptsize] {$\times \gamma_1$ (\texttt{scale\_1})};
+\draw[arr] (sum1) -- (ln2);
+\draw[arr] (ln2) -- (mdwa);
+\draw[arr] (mdwa) -- (sum2) node[midway, right=3pt, font=\scriptsize] {$\times \gamma_2$ (\texttt{scale\_2})};
+\draw[arr] (sum2) -- (ln3);
+\draw[arr] (ln3) -- (gdfn);
+\draw[arr] (gdfn) -- (sum3) node[midway, right=3pt, font=\scriptsize] {$\times \gamma_3$ (\texttt{scale\_3})};
+\draw[arr] (sum3) -- (out);
+
+% Residual connections
+\draw[arr] (in) -| (-3.2, 4.0) -- (sum1);
+\draw[arr] (sum1) -| (-3.2, 0.5) -- (sum2);
+\draw[arr] (sum2) -| (-3.2, -3.0) -- (sum3);
+
+\end{tikzpicture}
+\caption{Detailed architecture of \texttt{ECRformerBlock} (\texttt{models/module.py}, lines 425--475). In our verified implementation, each block contains \textbf{both} Transposed Attention (MDTA) for global channel-wise covariance and Multi-Dilated Window Attention (MDWA) for multi-scale spatial textures, followed by a Gated Feed-Forward Network (GDFN). Each branch has a learnable residual scalar initialized to $0.01$.}
+\label{fig:ecrformer_block}
+\end{figure}

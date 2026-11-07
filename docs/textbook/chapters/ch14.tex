@@ -1,0 +1,95 @@
+\chapter{Backpropagation Through the Actual Architecture}
+\label{chap:ch14}
+
+\section{The Computational Graph: Forward Pass and Autograd Engine}
+When PyTorch executes the forward pass of \texttt{ECRformerAdaptedModel}, it dynamically constructs a directed acyclic graph (DAG) of tensor operations in memory. 
+
+Each tensor created by a mathematical operation retains a reference to its creator function via the \texttt{grad\_fn} attribute (e.g., \texttt{<AddBackward0>}, \texttt{<ConvolutionBackward0>}, \texttt{<MulBackward0>}). When \texttt{loss.backward()} is invoked on the final scalar loss, PyTorch traverses this DAG in reverse topological order, applying the multivariable Chain Rule to compute:
+\begin{equation}
+\mathbf{g}_\theta = \frac{\partial \mathcal{L}}{\partial \theta} \quad \text{for every trainable parameter } \theta
+\end{equation}
+
+Figure~\ref{fig:backprop_graph} illustrates the forward flow of activations and the reverse propagation of gradients through our verified network architecture.
+
+\input{figures/fig_backprop_graph}
+
+\section{Gradient Flow Through the Soft-Mask Blend Gate}
+One of the most elegant mathematical properties of our architecture occurs at the final output blending layer:
+\begin{equation}
+\hat{\mathbf{Y}} = (1 - \mathbf{M}) \odot \mathbf{X}_{S2} + \mathbf{M} \odot \mathbf{P}_{\text{dir}}
+\end{equation}
+When computing the gradient of the composite loss $\mathcal{L}$ with respect to the generator's direct prediction $\mathbf{P}_{\text{dir}}$:
+\begin{equation}
+\frac{\partial \mathcal{L}}{\partial \mathbf{P}_{\text{dir}}} = \frac{\partial \mathcal{L}}{\partial \hat{\mathbf{Y}}} \odot \frac{\partial \hat{\mathbf{Y}}}{\partial \mathbf{P}_{\text{dir}}} = \frac{\partial \mathcal{L}}{\partial \hat{\mathbf{Y}}} \odot \mathbf{M}
+\end{equation}
+
+\begin{conceptbox}{Mathematical Significance: The Zero-Gradient Shield}
+Look carefully at the term $\frac{\partial \mathcal{L}}{\partial \mathbf{P}_{\text{dir}}} = \frac{\partial \mathcal{L}}{\partial \hat{\mathbf{Y}}} \odot \mathbf{M}$:
+\begin{itemize}
+    \item \textbf{Under Cloudy Pixels ($\mathbf{M} \approx 1.0$):} $\frac{\partial \mathcal{L}}{\partial \mathbf{P}_{\text{dir}}} \approx \frac{\partial \mathcal{L}}{\partial \hat{\mathbf{Y}}}$. Full gradient magnitude flows back to the neural network weights, driving learning and reconstruction.
+    \item \textbf{Under Clear Pixels ($\mathbf{M} = 0.0$):} $\frac{\partial \mathcal{L}}{\partial \mathbf{P}_{\text{dir}}} = \frac{\partial \mathcal{L}}{\partial \hat{\mathbf{Y}}} \times 0.0 = \mathbf{0.0}$!
+\end{itemize}
+The generator receives \textbf{zero gradient penalty} for what it predicts under clear skies! The soft mask acts as a mathematical shield: the network is not forced to waste parameter capacity memorizing clear terrain that will simply be preserved from the original optical image anyway!
+\end{conceptbox}
+
+\section{Gradient Propagation Across Skip Connections and Auxiliary Heads}
+As the gradient travels backward through the decoder, two critical structural bifurcations occur:
+
+\subsection{1. Additive Gradient Injection from Auxiliary Heads}
+At each decoder level $k$, the feature map $\mathbf{F}_{\text{dec}, k}$ feeds both into the main decoder path and into an auxiliary projection head (\texttt{up\_proj[k]}):
+\begin{equation}
+\frac{\partial \mathcal{L}_{\text{total}}}{\partial \mathbf{F}_{\text{dec}, k}} = \frac{\partial \mathcal{L}_{\text{main}}}{\partial \mathbf{F}_{\text{dec}, k}} + w_{\text{aux}} \frac{\partial \mathcal{L}_{\text{aux}, k}}{\partial \mathbf{F}_{\text{dec}, k}}
+\end{equation}
+The gradients add together directly! This injects strong, direct supervision signals into early decoder and encoder layers, bypassing the vanishing gradient problem.
+
+\subsection{2. Bifurcation at Skip Connections}
+When gradients reach a concatenation node with an encoder skip connection:
+\begin{equation}
+\mathbf{F}_{\text{fused}} = [\mathbf{F}_{\text{upsampled}}, \mathbf{F}_{\text{skip}}]
+\end{equation}
+The incoming gradient vector splits along the channel axis:
+\begin{itemize}
+    \item Gradient slice $[0 : C_{\text{up}}]$ flows backward into the upsampling deconvolution path.
+    \item Gradient slice $[C_{\text{up}} : 2C_{\text{up}}]$ jumps directly across the skip connection into the encoder!
+\end{itemize}
+The encoder receives gradients through two parallel highways: directly via skip connections and indirectly through the bottleneck.
+
+\section{The $2\times$ Differential Learning Rate on SAR Stem}
+In \texttt{train\_ecrformer\_v3.py} and \texttt{train\_ecrformer\_v4\_gan.py}, we implemented a specialized parameter grouping in the optimizer:
+\begin{lstlisting}[language=Python]
+sar_params = list(model.module.stem.branch_0.parameters()) + \
+             list(model.module.encoder[0].parameters())
+base_params = [p for p in model.parameters() if p not in set(sar_params)]
+
+optimizer = torch.optim.AdamW([
+    {'params': base_params, 'lr': 1e-4},
+    {'params': sar_params, 'lr': 2e-4} # 2x learning rate for SAR features!
+], weight_decay=1e-4)
+\end{lstlisting}
+\begin{itemize}
+    \item \textbf{Why this is necessary:} Microwave radar backscatter has a lower signal-to-noise ratio and higher statistical variance (speckle noise) than optical imagery. In standard training, gradients preferentially update the optical branch, leaving the radar branch under-utilized.
+    \item Doubling the learning rate ($2\times 10^{-4}$) on \texttt{branch\_0} forces the network to aggressively learn high-contrast SAR edge extractors during the earliest epochs!
+\end{itemize}
+
+\section{Summary of Chapter 14}
+\begin{enumerate}
+    \item Autograd constructs a dynamic computational DAG and computes exact partial derivatives via reverse topological traversal.
+    \item The soft-mask blend gate multiplies gradients to the generator by $\mathbf{M}$, shielding the network from wasting capacity on clear pixels.
+    \item Auxiliary projection heads inject additive gradient signals directly into intermediate layers.
+    \item Skip connections provide direct gradient expressways from the loss to early encoder layers.
+    \item A $2\times$ differential learning rate forces aggressive feature extraction on Sentinel-1 SAR channels.
+\end{enumerate}
+
+\section{Practice Exercises}
+\begin{enumerate}
+    \item If a pixel has mask value $\mathbf{M} = 0.20$ and the upstream loss gradient $\frac{\partial \mathcal{L}}{\partial \hat{\mathbf{Y}}} = 5.0$, what is the gradient received by the generator prediction $\frac{\partial \mathcal{L}}{\partial \mathbf{P}_{\text{dir}}}$?
+    \item Why does applying auxiliary losses to intermediate encoder/decoder layers prevent vanishing gradients?
+    \item Explain why the SAR stem branch (\texttt{branch\_0}) was assigned twice the learning rate of the rest of the network.
+\end{enumerate}
+
+\subsection*{Solutions}
+\begin{enumerate}
+    \item $\frac{\partial \mathcal{L}}{\partial \mathbf{P}_{\text{dir}}} = \frac{\partial \mathcal{L}}{\partial \hat{\mathbf{Y}}} \times \mathbf{M} = 5.0 \times 0.20 = 1.0$.
+    \item In very deep networks, gradients traveling through dozens of non-linear layers can shrink exponentially toward zero (vanishing gradients). Intermediate auxiliary heads connect the loss function directly to early layers through only a single $3\times 3$ convolution, injecting unattenuated gradient signals directly into early representations.
+    \item SAR data contains complex speckle noise and different physical scattering mechanisms that are harder to map to optical reflectance than optical-to-optical features. A $2\times$ learning rate overcomes this inertia, forcing the network to actively exploit microwave information rather than taking the lazy path of relying solely on optical context.
+\end{enumerate}

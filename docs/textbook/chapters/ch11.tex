@@ -1,0 +1,115 @@
+\chapter{ECRformer Architecture in Detail}
+\label{chap:ch11}
+
+\section{The Core Innovation: Hybrid Multimodal Attention}
+The standard ECRformer architecture and our adapted lightweight version (\texttt{ECRformerAdaptedModel}) are engineered to resolve the trade-off between global context and local texture fidelity.
+
+Inside each \texttt{ECRformerBlock} (\texttt{models/module.py}, lines 425--475), the model combines \textbf{three specialized sub-modules}:
+\begin{enumerate}
+    \item \textbf{MDTA (Multi-DConv Head Transposed Attention):} Computes global cross-covariance across feature channels.
+    \item \textbf{MDWA (Multi-Dilated Window Attention):} Computes multi-scale spatial attention across dilated local neighborhoods.
+    \item \textbf{GDFN (Gated Depthwise Feed-Forward Network):} Non-linear gating that controls information flow.
+\end{enumerate}
+
+Figure~\ref{fig:ecrformer_block} illustrates the internal topology of an \texttt{ECRformerBlock}.
+
+\input{figures/fig_ecrformer_block}
+
+\section{Module A: Multi-DConv Head Transposed Attention (MDTA)}
+MDTA (Zamir et al.~\cite{zamir2022restormer}) calculates attention across feature channels rather than spatial tokens:
+\begin{enumerate}
+    \item Given normalized input $\mathbf{X} \in \mathbb{R}^{B \times C \times H \times W}$, $1 \times 1$ convolutions project $\mathbf{X}$ into Query, Key, and Value representations.
+    \item A depthwise $3 \times 3$ convolution is applied to $\mathbf{Q}$, $\mathbf{K}$, and $\mathbf{V}$, encoding local spatial structure before computing attention.
+    \item $\mathbf{Q}$ and $\mathbf{K}$ are reshaped to $[B, C, \hat{N}]$ where $\hat{N} = HW$.
+    \item Transposed cross-covariance attention is computed:
+    \begin{equation}
+    \text{Attention}(\mathbf{Q}, \mathbf{K}, \mathbf{V}) = \mathbf{V} \cdot \text{Softmax}\left(\frac{\mathbf{K}^T \mathbf{Q}}{\alpha}\right)
+    \end{equation}
+    where $\alpha$ is a learnable scaling factor.
+\end{enumerate}
+Because the attention map has dimensions $[B, \text{heads}, C_{\text{head}}, C_{\text{head}}]$, memory usage is completely independent of image resolution!
+
+\section{Module B: Multi-Dilated Window Attention (MDWA)}
+While MDTA captures global inter-channel relationships, local physical terrain features (such as road contours and building edges) require high-resolution spatial attention.
+
+MDWA (Jiao et al.~\cite{jiao2023dilateformer}) partitions the spatial grid into local windows (e.g., $8 \times 8$). Inside each window, attention heads are assigned different \textbf{dilation rates}:
+\begin{itemize}
+    \item Head 0 ($r=1$): Dense nearest-neighbor attention (sharp edges, corners).
+    \item Head 1 ($r=2$): Neighborhood attention spanning 2-pixel jumps (local textures).
+    \item Heads 2 \& 3 ($r=3, 4$): Broader dilated attention spanning the full window (regional patterns).
+\end{itemize}
+By combining multiple dilation rates in parallel within the same block, the network extracts multi-scale spatial features simultaneously with zero receptive-field blind spots.
+
+\section{Module C: Gated Depthwise Feed-Forward Network (GDFN)}
+In standard transformers, the feed-forward network consists of two dense linear projections with a ReLU or GELU activation. In ECRformer, \texttt{GatedFFN} (\texttt{models/module.py}, lines 288--308) introduces a dual-path gating mechanism:
+\begin{equation}
+\text{GDFN}(\mathbf{X}) = \mathbf{W}_3^0 \Big( \phi\big(\mathbf{W}_1^d \mathbf{W}_1^0 \mathbf{X}\big) \odot \big(\mathbf{W}_2^d \mathbf{W}_2^0 \mathbf{X}\big) \Big)
+\end{equation}
+where:
+\begin{itemize}
+    \item $\mathbf{W}^0$ denotes $1 \times 1$ point-wise convolutions expanding channels by an expansion factor of 2.
+    \item $\mathbf{W}^d$ denotes $3 \times 3$ depthwise convolutions capturing localized spatial context.
+    \item $\phi(\cdot)$ is the GELU non-linear activation.
+    \item $\odot$ is the element-wise Hadamard product (the gating mechanism).
+\end{itemize}
+One branch acts as an information gate, deciding which features to allow through based on the content of the other branch!
+
+\begin{codebox}{Learnable Residual Scale Parameters in \texttt{models/module.py}}
+Notice how each sub-layer inside \texttt{ECRformerBlock} is weighted by a learnable scalar parameter initialized to $0.01$:
+\begin{lstlisting}[language=Python]
+# Lines 439-441 in models/module.py
+self.scale_1 = nn.Parameter(torch.tensor(0.01))
+self.scale_2 = nn.Parameter(torch.tensor(0.01))
+self.scale_3 = nn.Parameter(torch.tensor(0.01))
+
+# Lines 466-474: Forward pass
+x = x + self.scale_1 * self.attn_1(self.norm_1(x))
+x = x + self.scale_2 * self.attn_2(self.norm_2(x))
+x = x + self.scale_3 * self.ffn_2(self.norm_3(x))
+\end{lstlisting}
+Initializing residual scalars to $0.01$ (LayerScale) allows gradients to flow smoothly through the identity bypass at the start of training, preventing early gradient explosions in deep transformer stacks!
+\end{codebox}
+
+\section{Module D: Scale-Decoupled Feature Learning (SDFL)}
+In our codebase, \textbf{SDFL} operates as both an architectural auxiliary head structure and a multi-scale supervision loss:
+\begin{enumerate}
+    \item The encoder contains three auxiliary projection heads: \texttt{down\_proj[0..2]}.
+    \item The decoder contains three auxiliary projection heads: \texttt{up\_proj[0..2]}.
+    \item Each head is a $3 \times 3$ convolution mapping intermediate features directly to 4-band optical images at scales $128 \times 128$, $64 \times 64$, and $32 \times 32$.
+    \item During training, multi-scale $L_1$ and SSIM losses are applied to these intermediate projections, forcing every hierarchical level to learn semantically meaningful optical representations rather than relying solely on the final layer.
+\end{enumerate}
+
+\section{Module E: Mean-Prior Initialization for the Output Head}
+When training starts with random Gaussian weights, a model initially outputs near-zero or erratic noise, generating massive loss spikes.
+
+In \texttt{models/ecrformer\_adapted.py} (lines 62--66), our model initializes the final reconstruction head (\texttt{final\_conv}) using the global surface reflectance means of clear-sky Sentinel-2 pixels across the SEN12MS-CR dataset:
+\begin{lstlisting}[language=Python]
+CLEAR_CHANNEL_MEANS = [0.0847, 0.0919, 0.1127, 0.1884] # B04, B03, B02, B08
+nn.init.normal_(self.final_conv.weight, mean=0.0, std=0.005)
+for i, m in enumerate(CLEAR_CHANNEL_MEANS):
+    self.final_conv.bias.data[i] = m
+\end{lstlisting}
+At step 0 of epoch 1, before any training has occurred, the network's direct prediction is already a plausible average landscape reflectance! This stabilizes the initial loss and prevents gradient shocks.
+
+\section{Summary of Chapter 11}
+\begin{enumerate}
+    \item \texttt{ECRformerBlock} uniquely combines Transposed Attention (MDTA), Multi-Dilated Window Attention (MDWA), and Gated Feed-Forward Networks (GDFN).
+    \item MDTA operates along channels ($C \times C$), achieving linear computational complexity.
+    \item MDWA partitions the image into local windows with parallel dilation rates $[1, 2, 3, 4]$ to capture multi-scale textures.
+    \item GDFN uses depthwise convolutions and Hadamard gating to selectively modulate feature propagation.
+    \item LayerScale residual scalars ($0.01$) and Mean-Prior bias initialization ensure stable training dynamics from step 0.
+\end{enumerate}
+
+\section{Practice Exercises}
+\begin{enumerate}
+    \item Why does initializing the residual branch scale parameters (\texttt{scale\_1}, \texttt{scale\_2}, \texttt{scale\_3}) to $0.01$ stabilize training?
+    \item How does GDFN's depthwise convolution differ from a standard convolution in parameter count?
+    \item What is the purpose of initializing \texttt{final\_conv.bias} with \texttt{CLEAR\_CHANNEL\_MEANS}?
+\end{enumerate}
+
+\subsection*{Solutions}
+\begin{enumerate}
+    \item When $\gamma \approx 0.01$, the output of the block is approximately $x + 0.01 \cdot f(x) \approx x$. The network behaves like an identity mapping initially, allowing backpropagation gradients to travel directly from the loss back to the input stem without being distorted by uncalibrated random attention weights.
+    \item A standard convolution with $C$ input and $C$ output channels requires $C \times C \times K^2$ weights. A depthwise convolution applies a separate $K \times K$ filter to each channel independently, requiring only $C \times K^2$ weights---a reduction in parameters and computation of factor $C$ (e.g., $64\times$ fewer parameters for $C=64$).
+    \item It anchors the initial model predictions to the empirical distribution of terrestrial surface reflectance. The model does not waste hundreds of training steps learning the average brightness of the Earth.
+\end{enumerate}

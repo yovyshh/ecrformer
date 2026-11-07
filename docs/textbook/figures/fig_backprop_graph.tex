@@ -1,0 +1,50 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    font=\footnotesize\sffamily,
+    fwd/.style={draw=blue!80, thick, rounded corners=3pt, fill=blue!10, minimum width=2.4cm, minimum height=0.7cm, align=center},
+    loss/.style={draw=orange!80, thick, rounded corners=3pt, fill=orange!15, minimum width=2.4cm, minimum height=0.7cm, align=center},
+    fwdarr/.style={draw=blue!80, thick, -Stealth},
+    backarr/.style={draw=red!80, thick, dashed, -Stealth}
+]
+
+% Nodes left to right
+\node[fwd] (stem) at (0, 2.5) {\textbf{Stem}\\SAR $\oplus$ Opt};
+\node[fwd] (enc) at (3.0, 2.5) {\textbf{Encoder}\\Stages 0--2};
+\node[fwd] (dec) at (6.0, 2.5) {\textbf{Decoder}\\Stages 0--2};
+\node[fwd] (head) at (9.0, 2.5) {\textbf{Output Head}\\$\mathbf{P}_{\text{dir}}$};
+\node[fwd] (blend) at (11.8, 2.5) {\textbf{Soft Blend}\\$\hat{\mathbf{Y}}$};
+
+% Losses
+\node[loss] (sdfl_enc) at (3.0, 0.5) {$\mathcal{L}_{\text{enc\_aux}}$\\(\texttt{down\_proj})};
+\node[loss] (sdfl_dec) at (6.0, 0.5) {$\mathcal{L}_{\text{dec\_aux}}$\\(\texttt{up\_proj})};
+\node[loss] (main_loss) at (11.8, 0.5) {$\mathcal{L}_{\text{composite}}$\\($L_1$ + VGG + GAN)};
+
+% Forward arrows (Blue)
+\draw[fwdarr] (stem) -- (enc);
+\draw[fwdarr] (enc) -- (dec);
+\draw[fwdarr] (dec) -- (head);
+\draw[fwdarr] (head) -- (blend);
+\draw[fwdarr] (blend) -- (main_loss);
+\draw[fwdarr] (enc) -- (sdfl_enc);
+\draw[fwdarr] (dec) -- (sdfl_dec);
+
+% Backward gradient arrows (Red dashed)
+\draw[backarr] (main_loss) -- (blend) node[midway, right=2pt, font=\scriptsize, text=red!80!black] {$\frac{\partial \mathcal{L}}{\partial \hat{\mathbf{Y}}}$};
+\draw[backarr] (blend) -- (head) node[midway, below=2pt, font=\scriptsize, text=red!80!black] {$\times \mathbf{M}$};
+\draw[backarr] (head) -- (dec) node[midway, below=2pt, font=\scriptsize, text=red!80!black] {$\nabla_{\mathbf{W}_{\text{head}}}$};
+\draw[backarr] (dec) -- (enc) node[midway, below=2pt, font=\scriptsize, text=red!80!black] {$\nabla_{\mathbf{W}_{\text{dec}}} + \text{skips}$};
+\draw[backarr] (enc) -- (stem) node[midway, below=2pt, font=\scriptsize, text=red!80!black] {$\nabla_{\mathbf{W}_{\text{enc}}}$};
+
+% Auxiliary gradient injections
+\draw[backarr] (sdfl_dec) -- (dec) node[midway, left=2pt, font=\scriptsize, text=red!80!black] {$+ \nabla \mathcal{L}_{\text{aux}}$};
+\draw[backarr] (sdfl_enc) -- (enc) node[midway, left=2pt, font=\scriptsize, text=red!80!black] {$+ \nabla \mathcal{L}_{\text{aux}}$};
+
+% Note on SAR stem gradient scaling
+\node[draw=red!70, dashed, fill=red!5, rounded corners=3pt, align=center, font=\scriptsize] at (0, 0.5) {\textbf{$2\times$ Learning Rate}\\applied to Branch 0\\(\texttt{stem.branch.0})};
+\draw[backarr] (0, 1.0) -- (stem.south);
+
+\end{tikzpicture}
+\caption{Forward activation flow (solid blue) and backward gradient propagation (dashed red) through \texttt{ECRformerAdaptedModel}. The soft-mask blend gate multiplies gradients from the main loss by $\mathbf{M}$, ensuring that gradients to the generator are concentrated on cloud-covered regions. Intermediate auxiliary heads inject direct gradient signals into earlier decoder and encoder stages.}
+\label{fig:backprop_graph}
+\end{figure}

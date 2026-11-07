@@ -1,0 +1,67 @@
+\chapter{The Complete Data Pipeline}
+\label{chap:ch06}
+
+\section{End-to-End Architectural Overview}
+A deep learning system is far more than its neural network weights: the data pipeline dictates what physical information reaches the model, how it is normalized, how gradients are calculated, and how final predictions are assembled.
+
+Figure~\ref{fig:pipeline_overview} illustrates the verified data and training pipeline running across our repository.
+
+\input{figures/fig_pipeline_overview}
+
+\section{Step-by-Step Trajectory of a Satellite Patch}
+Let us follow a single geographical coordinate through the entire system from disk storage to clear-sky optical reconstruction:
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabularx}{\textwidth}{llp{3.2cm}X}
+\toprule
+\textbf{Stage} & \textbf{Source File \& Function} & \textbf{Tensor Shape} & \textbf{Physical Operation} \\
+\midrule
+1. Raw Cache & \texttt{data/cache\_dataset.py} & Disk \texttt{.npz} files & Loads compressed arrays: \texttt{s2\_cloudy}, \texttt{s2\_clear}, \texttt{s1}, \texttt{mask}. \\
+2. SAR Norm & \texttt{CachedSEN12MSCRDataset} & S1: $[2, 128, 128]$ & Clamps VV $\in [-25, 0]$ dB, VH $\in [-35, 0]$ dB; scales linearly to $[0, 1]$. \\
+3. Mask Prep & \texttt{\_\_getitem\_\_} lines 84--97 & Mask: $[1, 128, 128]$ & 3-step refinement: $9\times 9$ pool $\to$ $5\times 5$ dilate $\to$ $11\times 11$ Gaussian blur. \\
+4. Augment & \texttt{apply\_cloud\_cutout} & Opt: $[4, 128, 128]$ & Random flips/rotations; synthetic opaque cutout in cloud cores ($p=0.65$). \\
+5. Stacking & \texttt{torch.cat} & $\mathbf{X}_{\text{in}}: [B, 7, 128, 128]$ & Concatenates S1 (2 ch), S2 cloudy (4 ch), and soft mask (1 ch). \\
+6. Decoupled Stem & \texttt{DecoupledEncoder} & $\mathbf{F}_0: [B, 32, 128, 128]$ & S1 $\to \text{Conv}_{2\to 16}$; S2+M $\to \text{Conv}_{5\to 16}$; concatenates to 32 ch. \\
+7. 4-Stage U-Net & \texttt{ECRformerModel} & $[B, 256, 16, 16] \to [B, 64, 128, 128]$ & Multi-scale MDTA + MDWA attention blocks with CBAM channel/spatial attention. \\
+8. Final Conv & \texttt{final\_conv} & $\mathbf{P}_{\text{dir}}: [B, 4, 128, 128]$ & $3\times 3$ reflection conv initialized with Sentinel-2 global clear channel means. \\
+9. Soft Blending & \texttt{ECRformerAdaptedModel} & $\hat{\mathbf{Y}}: [B, 4, 128, 128]$ & $\hat{\mathbf{Y}} = (1 - \mathbf{M}) \odot \mathbf{X}_{S2} + \mathbf{M} \odot \mathbf{P}_{\text{dir}}$. \\
+10. Supervision & \texttt{train\_ecrformer\_v4\_gan.py} & Scalar loss $\mathcal{L}_{\text{total}}$ & Scale-decoupled $L_1$ + SDFL aux + VGG/Grad/Std + 11-Ch PatchGAN. \\
+11. Optimizer & AdamW + GradClip & Model weights $\theta$ & $2\times$ learning rate on SAR branch; EMA update ($\beta=0.999$). \\
+\bottomrule
+\end{tabularx}
+\caption{Verified execution stages across the entire training and inference pipeline.}
+\label{tab:pipeline_stages}
+\end{table}
+
+\section{Failure Modes in Multimodal Data Pipelines}
+Understanding where pipelines fail is vital for diagnosing poor model performance:
+\begin{itemize}
+    \item \textbf{Data Leakage via Scene Overlap:} If adjacent $128 \times 128$ patches from the same geographical orbit are randomly split between training and validation sets, the model simply memorizes the local terrain. Our pipeline enforces strict \textbf{scene-level splitting} (splitting by ROI scene directory), guaranteeing zero spatial overlap between training and testing.
+    \item \textbf{SAR Decibel Clipping Mismatch:} If the training script clips SAR VV to $[-25, 0]$ dB but inference clips to $[-30, 0]$ dB, the entire calibration shift blinds the model's radar feature extractors.
+    \item \textbf{Inverted Cloud Mask:} If the mask defines $1 = \text{clear}$ and $0 = \text{cloudy}$, the soft-blend equation $(1-\mathbf{M})\mathbf{X}_{S2} + \mathbf{M}\mathbf{P}_{\text{dir}}$ will copy the cloudy pixels directly into the final image while replacing clear pixels with neural predictions!
+\end{itemize}
+
+\section{Summary of Chapter 6}
+\begin{enumerate}
+    \item The pipeline ingests cached multi-sensor arrays and executes deterministic, on-the-fly radiometric normalizations.
+    \item Sentinel-1 radar and Sentinel-2 optical data are processed through separate decoupled convolutional branches before fusion.
+    \item Spatial feature maps traverse a 4-level encoder-decoder hierarchy equipped with transposed and dilated window attention.
+    \item Soft mask blending guarantees that pristine clear-sky optical pixels are preserved with 100\% mathematical fidelity.
+    \item Gradient updates employ differential learning rates, gradient norm clipping, and exponential moving average (EMA) weight accumulation.
+\end{enumerate}
+
+\section{Practice Exercises}
+\begin{enumerate}
+    \item Why must the dataset be split at the \emph{scene level} rather than by shuffling individual patches?
+    \item If a pixel in the cloud mask has a value of $\mathbf{M} = 0.0$, what is the exact formula for the blended output pixel $\hat{\mathbf{Y}}$?
+    \item What is the role of Exponential Moving Average (EMA) during model checkpointing?
+\end{enumerate}
+
+\subsection*{Solutions}
+\begin{enumerate}
+    \item Adjacent $128 \times 128$ patches cut from the same satellite acquisition share identical atmospheric conditions, soil types, and seasonal vegetation phenology. Random patch shuffling allows the model to memorize the landscape during training, artificially inflating validation scores without proving generalizability to unseen regions. Scene-level splitting tests the model on completely different geographic regions.
+    \item $\hat{\mathbf{Y}} = (1 - 0.0)\mathbf{X}_{S2} + (0.0)\mathbf{P}_{\text{dir}} = \mathbf{X}_{S2}$. The output is mathematically identical to the original Sentinel-2 optical pixel, introducing zero neural distortion or blurring to clear areas.
+    \item EMA maintains a running temporal average of the model weights: $\theta_{\text{EMA}} \leftarrow \beta \theta_{\text{EMA}} + (1 - \beta)\theta$. This filters out high-frequency stochastic gradient noise from individual mini-batches, consistently producing smoother convergence and higher PSNR/SSIM on validation benchmarks.
+\end{enumerate}

@@ -1,0 +1,201 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+\usepackage{graphicx}
+
+\tcbuselibrary{skins,breakable}
+
+% Colors
+\definecolor{primary}{HTML}{1B365D}   % Navy
+\definecolor{secondary}{HTML}{008080} % Teal
+\definecolor{accent}{HTML}{C0392B}    % Crimson
+\definecolor{boxbg}{HTML}{F8FAFC}     % Off-white
+\definecolor{bordercolor}{HTML}{CBD5E1}
+
+% Page styling
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\textcolor{primary}{\small\textbf{Pipeline Document 05: Loss Functions}}}
+\lhead{\small CUSAT MSc AI Mini-Project}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.6pt}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=primary,
+    urlcolor=secondary,
+    citecolor=primary
+}
+
+\begin{document}
+
+% Title Header
+\begin{center}
+    {\LARGE \textbf{\textcolor{primary}{05 $\cdot$ THE THREE PILLARS OF LOSS FUNCTIONS}}}\\[0.4em]
+    {\large \textbf{Mathematical Formulations, Backpropagation Dynamics, and Gradient Roles}}\\[0.6em]
+    {\small \textbf{Project:} SAR-Guided Satellite Cloud Removal $\cdot$ ECRformer + Conditional PatchGAN}\\
+    {\small \textbf{Authors:} Agnal K V $\cdot$ Bivin Balu $\cdot$ Vaishnav T Prakash $\quad|\quad$ \textbf{Supervisor:} Dr. Sabu M K}\\
+    {\small Department of Computer Applications, Cochin University of Science and Technology (CUSAT)}
+\end{center}
+\vspace{-0.5em}
+\noindent\rule{\linewidth}{1.2pt}
+
+\vspace{0.8em}
+\begin{tcolorbox}[colback=primary!5!white,colframe=primary,title=\textbf{Document Purpose \& The Tripartite Loss Architecture},fonttitle=\bfseries]
+In satellite optical reconstruction, no single loss function can solve cloud removal alone. A pure pixel loss produces blurry smudges; a pure structural loss distorts spectral reflectance; a pure adversarial loss hallucinates non-existent buildings. Our pipeline balances \textbf{Three Fundamental Pillars}:
+\begin{enumerate}[leftmargin=1.5em, itemsep=0.2em]
+    \item \textbf{Pillar 1: Photometric / Radiometric Bedrock} ($\mathcal{L}_{L1}, \mathcal{L}_{\text{projs}}$) $\implies$ Preserves multi-spectral color and photon energy.
+    \item \textbf{Pillar 2: Structural \& Frequency Scaffold} ($\mathcal{L}_{\text{SDFL}}, \mathcal{L}_{\text{grad}}, \mathcal{L}_{\text{corr}}$) $\implies$ Recovers sharp physical edges and SAR-aligned contours.
+    \item \textbf{Pillar 3: Adversarial \& Perceptual Finisher} ($\mathcal{L}_{\text{adv}}, \mathcal{L}_{\text{FM}}$) $\implies$ Synthesizes natural high-frequency micro-texture.
+\end{enumerate}
+\end{tcolorbox}
+
+\section{Master Loss Formulation \& Component Matrix}
+
+The complete generator optimization objective combines all three pillars under soft cloud mask weighting:
+
+\begin{equation}
+\mathcal{L}_G = \mathcal{L}_{L1} + \lambda_{\text{projs}}\mathcal{L}_{\text{projs}} + \lambda_{\text{SDFL}}\mathcal{L}_{\text{SDFL}} + \lambda_{\text{grad}}\mathcal{L}_{\text{grad}} + \lambda_{\text{corr}}\mathcal{L}_{\text{corr}} + w_{\text{adv}}\mathcal{L}_{\text{adv}} + w_{\text{FM}}\mathcal{L}_{\text{FM}}
+\end{equation}
+
+\begin{table}[h!]
+\centering
+\small
+\renewcommand{\arraystretch}{1.25}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lllll}
+\toprule
+\textbf{Pillar} & \textbf{Loss Component} & \textbf{Weight ($\lambda$)} & \textbf{Mathematical Focus} & \textbf{Primary Failure Prevented} \\
+\midrule
+\textbf{1. Photometric} & Masked $L_1$ ($\mathcal{L}_{L1}$) & $1.00$ & Low-frequency absolute reflectance & Spectral color drift \& energy bias \\
+\textbf{1. Photometric} & Multi-Scale Projections ($\mathcal{L}_{\text{projs}}$) & $0.25$ & Early decoder stage alignment & Vanishing gradients in early transformer layers \\
+\textbf{2. Structural}  & Scale-Decoupled Frequency ($\mathcal{L}_{\text{SDFL}}$) & $0.50$ & Multiscale Laplacian frequency octaves & Blurry conditional mean regression \\
+\textbf{2. Structural}  & Sobel Gradient Magnitude ($\mathcal{L}_{\text{grad}}$) & $0.20$ & 1st-order spatial derivatives & Washed-out road and canal boundaries \\
+\textbf{2. Structural}  & Edge Pearson Correlation ($\mathcal{L}_{\text{corr}}$) & $0.15$ & Directional gradient alignment & Misaligned geometric features \\
+\textbf{3. Adversarial} & PatchGAN LSGAN ($\mathcal{L}_{\text{adv}}$) & $0.04$ & $16 \times 16$ local patch realism & Flat synthetic grey appearance \\
+\textbf{3. Adversarial} & Feature Matching ($\mathcal{L}_{\text{FM}}$) & $0.35$ & Multi-layer critic activations & GAN checkerboard noise \& mode collapse \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Comprehensive breakdown of the seven active loss components across the Three Pillars.}
+\end{table}
+
+\newpage
+
+\section{Pillar 1: Photometric / Radiometric Reconstruction}
+
+\subsection{1. Mask-Weighted Scale-Decoupled Spatial $L_1$ Loss}
+\begin{equation}
+\mathcal{L}_{L1} = \frac{1}{\|M\|_1 \cdot C} \sum_{c=1}^C \sum_{i, j} M(i, j) \cdot \left| P_{\text{dir}}(c, i, j) - Y(c, i, j) \right|
+\end{equation}
+\begin{itemize}[leftmargin=1.5em, itemsep=0.2em]
+    \item \textbf{Mathematical Role:} Directly minimizes absolute photon reflectance deviation across all four multi-spectral channels (Red, Green, Blue, NIR).
+    \item \textbf{Backpropagation Gradient:}
+    \begin{equation}
+    \frac{\partial \mathcal{L}_{L1}}{\partial P_{\text{dir}}(c, i, j)} = \frac{M(i, j)}{\|M\|_1 \cdot C} \cdot \text{sign}\left( P_{\text{dir}}(c, i, j) - Y(c, i, j) \right)
+    \end{equation}
+    The constant $\pm 1$ sign gradient ensures stable, non-exploding updates even when large cloud illumination spikes occur.
+\end{itemize}
+
+\subsection{2. Auxiliary Multi-Scale Projection Loss ($\mathcal{L}_{\text{projs}}$)}
+Intermediate representations from Decoder Stages 1 and 2 ($32 \times 32$ and $64 \times 64$) are projected to 4 channels via $1 \times 1$ convolutions ($P^{(s)}$) and supervised against downsampled ground truth $Y^{(s)}$:
+\begin{equation}
+\mathcal{L}_{\text{projs}} = \sum_{s \in \{1, 2\}} \frac{1}{2^s} \left\| M^{(s)} \odot \left( P^{(s)} - Y^{(s)} \right) \right\|_1
+\end{equation}
+\textbf{Gradient Role:} Injects deep supervision directly into early transformer layers, bypassing vanishing gradients.
+
+\section{Pillar 2: Structural \& Frequency Edge Restoration}
+
+\subsection{1. Scale-Decoupled Frequency Loss (SDFL)}
+SDFL constructs an $S$-level Laplacian pyramid of both prediction $P_{\text{dir}}$ and ground truth $Y$. The high-frequency band at octave $s$ is $H^{(s)} = I^{(s)} - \text{Upsample}(\text{Downsample}(I^{(s)}))$:
+\begin{equation}
+\mathcal{L}_{\text{SDFL}} = \sum_{s=1}^S 2^{S-s} \cdot \left\| \nabla H_P^{(s)} - \nabla H_Y^{(s)} \right\|_1
+\end{equation}
+\begin{itemize}[leftmargin=1.5em, itemsep=0.2em]
+    \item \textbf{Mathematical Role:} Weights fine spatial octaves with exponentially higher importance ($2^{S-s}$).
+    \item \textbf{Gradient Role:} Specifically punishes the loss of high-frequency Fourier components, forcing the generator to inpaint fine roads and field borders rather than flat averages.
+\end{itemize}
+
+\subsection{2. Directional Sobel Gradient Loss ($\mathcal{L}_{\text{grad}}$)}
+Using 2D horizontal ($K_x$) and vertical ($K_y$) Sobel convolution kernels:
+\begin{equation}
+\nabla_x I = K_x * I, \qquad \nabla_y I = K_y * I, \qquad \|\nabla I\| = \sqrt{(\nabla_x I)^2 + (\nabla_y I)^2 + \epsilon}
+\end{equation}
+\begin{equation}
+\mathcal{L}_{\text{grad}} = \frac{1}{\|M\|_1} \sum_{i, j} M(i, j) \cdot \left| \|\nabla P_{\text{dir}}(i, j)\| - \|\nabla Y(i, j)\| \right|
+\end{equation}
+
+\subsection{3. Masked Edge Pearson Correlation Loss ($\mathcal{L}_{\text{corr}}$)}
+Measures the cosine similarity of spatial gradient vectors under the cloud mask:
+\begin{equation}
+r(\nabla P, \nabla Y) = \frac{\sum (\|\nabla P\| - \mu_P)(\|\nabla Y\| - \mu_Y)}{\sqrt{\sum (\|\nabla P\| - \mu_P)^2} \sqrt{\sum (\|\nabla Y\| - \mu_Y)^2}}, \qquad \mathcal{L}_{\text{corr}} = 1 - r(\nabla P, \nabla Y)
+\end{equation}
+Forces predicted edges to be \textbf{collinear and co-located} with the true physical ground boundaries.
+
+\newpage
+
+\section{Pillar 3: Conditional Adversarial \& Perceptual Critique}
+
+\subsection{1. Least-Squares PatchGAN Adversarial Loss ($\mathcal{L}_{\text{adv}}$)}
+Evaluated over the $8 \times 8$ grid of local $16 \times 16$ spatial patches:
+\begin{align}
+\mathcal{L}_D &= \frac{1}{2} \mathbb{E}\left[ \left( D(X_D, Y) - 1 \right)^2 \right] + \frac{1}{2} \mathbb{E}\left[ \left( D(X_D, P_{\text{dir}}) \right)^2 \right] \quad &&\text{(Critic Step)}\\
+\mathcal{L}_{\text{adv}}(G) &= \mathbb{E}\left[ \left( D(X_D, P_{\text{dir}}) - 1 \right)^2 \right] \quad &&\text{(Generator Step)}
+\end{align}
+\textbf{Gradient Role:} Injects high-frequency stochastic textures (grassland turbulence, roof tile patterns) where deterministic losses cannot guess exact pixel values.
+
+\subsection{2. Multi-Layer Feature Matching Loss ($\mathcal{L}_{\text{FM}}$)}
+Instead of relying on ImageNet pre-trained VGG networks (which are completely blind to satellite infrared and SAR radar channels), we extract internal feature maps directly from the $L=4$ intermediate convolutional layers of our trained Discriminator $D_\phi$:
+\begin{equation}
+\mathcal{L}_{\text{FM}}(G, D) = \sum_{l=1}^L \frac{1}{N_l} \left\| D^{(l)}(X_D, Y) - D^{(l)}(X_D, P_{\text{dir}}) \right\|_1
+\end{equation}
+\textbf{Gradient Role:} Acts as an adaptive, multi-modal perceptual loss that stabilizes the adversarial game and completely eliminates high-frequency checkerboard artifacts.
+
+\section{Why We Used These Methods Over Others}
+
+\begin{tcolorbox}[colback=white,colframe=primary,title=\textbf{1. Why $L_1$ (MAE) over $L_2$ (MSE) for Pillar 1?}]
+\textbf{Alternative:} Mean Squared Error $\mathcal{L}_{L2} = (P - Y)^2$.
+\begin{itemize}[leftmargin=1.2em, itemsep=0.2em]
+    \item \textbf{Failure of Alternative:} $L_2$ penalizes large errors quadratically ($(\Delta)^2$). Under dense clouds where ground uncertainty is high, $L_2$ hedges by predicting the conditional mean $\mathbb{E}[Y|X]$, guaranteeing a blurry grey output. Furthermore, outliers create massive gradient spikes ($2\Delta$), causing training divergence.
+    \item \textbf{Why Our Choice Wins:} $L_1$ penalizes errors linearly, which corresponds mathematically to finding the \textbf{conditional median}. This preserves sharp transitions across boundaries and provides bounded constant gradients ($\pm 1$).
+\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[colback=white,colframe=secondary,title=\textbf{2. Why Scale-Decoupled Frequency Loss (SDFL) over Standard SSIM Alone for Pillar 2?}]
+\textbf{Alternative:} Structural Similarity Index Measure (SSIM) alone ($\mathcal{L}_{\text{SSIM}} = 1 - \text{SSIM}(P, Y)$).
+\begin{itemize}[leftmargin=1.2em, itemsep=0.2em]
+    \item \textbf{Failure of Alternative:} SSIM is computed inside small local Gaussian windows ($11 \times 11$). When an entire $100 \times 100$ region is opaque cloud, local SSIM saturates to zero and provides almost flat gradients, failing to enforce edge sharpness.
+    \item \textbf{Why Our Choice Wins:} SDFL operates across multiple dyadic scales via Laplacian pyramids. It isolates high frequencies into dedicated octave bands and multiplies their gradients by $2^{S-s}$, guaranteeing that fine road and water contours receive dominant backpropagation force.
+\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[colback=white,colframe=primary,title=\textbf{3. Why Discriminator Feature Matching over Pre-Trained VGG Perceptual Loss for Pillar 3?}]
+\textbf{Alternative:} VGG-16 / VGG-19 perceptual loss pre-trained on ImageNet.
+\begin{itemize}[leftmargin=1.2em, itemsep=0.2em]
+    \item \textbf{Failure of Alternative:} ImageNet VGG is trained exclusively on 3-channel optical RGB photographs of dogs, cars, and consumer objects. It has \textbf{zero understanding} of Near-Infrared (Band 8) or Sentinel-1 SAR microwave radar backscatter. Forcing multi-spectral satellite data through RGB VGG causes severe spectral distortion.
+    \item \textbf{Why Our Choice Wins:} Our PatchGAN critic natively accepts the complete 11-channel multi-modal tensor $[S_1, S_2, M, \text{Candidate}]$. Its internal activations understand radar backscatter and infrared absorption natively, providing scientifically grounded perceptual supervision.
+\end{itemize}
+\end{tcolorbox}
+
+% Quick Viva Sheet
+\section{15-Second Viva Examiner Defense Quick-Sheet}
+
+\begin{description}[leftmargin=1.5em, style=nextline]
+    \item[\textbf{Q: What prevents your GAN from hallucinating fake terrain features?}]
+    \textit{Answer:} The 11-channel conditional input of the Discriminator and the high weighting of Pillar 1 ($L_1 = 1.0$) and Pillar 2 ($\text{SDFL} = 0.50$). The adversarial loss ($w_{\text{adv}} = 0.04$) only controls fine texture; large-scale geometry is anchored to the physical SAR radar signal.
+    
+    \item[\textbf{Q: Why are your losses weighted by the cloud mask $M$?}]
+    \textit{Answer:} Mask-weighting concentrates gradient updates exclusively on pixels that actually require reconstruction. Clear-sky pixels already have perfect ground truth in $S_{2,\text{cloudy}}$ and are preserved via alpha blending.
+\end{description}
+
+\end{document}

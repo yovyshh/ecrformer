@@ -1,0 +1,627 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=0.8in]{geometry}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage[most]{tcolorbox}
+\usepackage[colorlinks=true,linkcolor=blue!70!black,urlcolor=blue!70!black]{hyperref}
+
+% Color Definitions
+\definecolor{navy}{HTML}{0F172A}
+\definecolor{royalblue}{HTML}{2563EB}
+\definecolor{softblue}{HTML}{EFF6FF}
+\definecolor{deepgreen}{HTML}{065F46}
+\definecolor{softgreen}{HTML}{ECFDF5}
+\definecolor{crimson}{HTML}{991B1B}
+\definecolor{softred}{HTML}{FEF2F2}
+\definecolor{amber}{HTML}{92400E}
+\definecolor{softamber}{HTML}{FFFBEB}
+\definecolor{codebg}{HTML}{F8FAFC}
+\definecolor{codeframe}{HTML}{CBD5E1}
+\definecolor{commentgreen}{HTML}{15803D}
+\definecolor{keywordblue}{HTML}{1D4ED8}
+\definecolor{stringred}{HTML}{B91C1C}
+
+% Code Listing Style
+\lstdefinestyle{pycode}{
+    language=Python,
+    backgroundcolor=\color{codebg},
+    frame=single,
+    rulecolor=\color{codeframe},
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\color{keywordblue}\bfseries,
+    commentstyle=\color{commentgreen}\itshape,
+    stringstyle=\color{stringred},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=6pt,
+    breaklines=true,
+    breakatwhitespace=true,
+    showstringspaces=false,
+    tabsize=4,
+    captionpos=b,
+    xleftmargin=12pt,
+    xrightmargin=4pt
+}
+\lstset{style=pycode}
+
+% Custom Q&A Boxes
+\newtcolorbox{qbox}[2][]{
+    enhanced,
+    breakable,
+    colback=softblue,
+    colframe=royalblue,
+    coltitle=white,
+    fonttitle=\bfseries\large,
+    title={#2},
+    arc=4pt,
+    boxrule=1.1pt,
+    top=6pt, bottom=6pt, left=8pt, right=8pt,
+    #1
+}
+
+\newtcolorbox{analogybox}[1]{
+    enhanced,
+    breakable,
+    colback=softamber,
+    colframe=amber,
+    coltitle=white,
+    fonttitle=\bfseries,
+    title={7th-Grade Real-World Analogy: #1},
+    arc=3pt,
+    boxrule=0.9pt,
+    top=5pt, bottom=5pt, left=8pt, right=8pt
+}
+
+\newtcolorbox{blackbox}[1]{
+    enhanced,
+    breakable,
+    colback=softgreen,
+    colframe=deepgreen,
+    coltitle=white,
+    fonttitle=\bfseries,
+    title={Opening the Black Box: #1},
+    arc=3pt,
+    boxrule=1.0pt,
+    top=5pt, bottom=5pt, left=8pt, right=8pt
+}
+
+\newtcolorbox{rulebox}[1]{
+    enhanced,
+    breakable,
+    colback=softred,
+    colframe=crimson,
+    coltitle=white,
+    fonttitle=\bfseries,
+    title={Key Golden Rule: #1},
+    arc=3pt,
+    boxrule=1.0pt,
+    top=5pt, bottom=5pt, left=8pt, right=8pt
+}
+
+% Header & Footer
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small\textbf{ECRformer + PatchGAN Cloud Removal Q\&A}}
+\rhead{\small\textbf{M.Sc. AI Study Reference}}
+\cfoot{\thepage}
+\setlength{\headheight}{14pt}
+\setlength{\parskip}{5pt}
+\setlength{\parindent}{0pt}
+
+\begin{document}
+
+% ==============================================================================
+% TITLE PAGE / BANNER
+% ==============================================================================
+\begin{tcolorbox}[colback=navy,colframe=navy,arc=6pt,top=10pt,bottom=10pt,left=12pt,right=12pt]
+\begin{center}
+    {\LARGE \textbf{\textcolor{white}{ECRformer-Light \& PatchGAN Cloud Removal}}}\\[5pt]
+    {\large \textbf{\textcolor{cyan!40!white}{The Complete ``No-Black-Boxes'' Question \& Answer Handbook}}}\\[5pt]
+    {\small \textcolor{gray!20!white}{Explained from Scratch for Beginners, 7th-Graders, and AI Researchers — With Full Annotated PyTorch Code}}\\[3pt]
+    {\footnotesize \textcolor{yellow!60!white}{\textbf{Covers:} 1. Data \& Preprocessing $\bullet$ 2. ECRformer Training (128$\times$128) $\bullet$ 3. PatchGAN Critic $\bullet$ 4. Cloud Removal Inference (256$\times$256)}}
+\end{center}
+\end{tcolorbox}
+
+\vspace{-4pt}
+\tableofcontents
+\vspace{4pt}
+\hrule
+\vspace{6pt}
+
+\begin{center}
+    \includegraphics[width=0.92\textwidth]{pipeline_training_vs_testing_complete.png}\\[2pt]
+    {\footnotesize \textbf{Master Reference Diagram:} Top = Phase 1 Joint Adversarial Training on $128\times 128$ Crops (Cloud Mask Roles \textbf{M1--M5}). Bottom = Phase 2 Testing/Inference on Full $256\times 256$ Native Scenes (Cloud Mask Roles \textbf{I1--I2}).}
+\end{center}
+
+\newpage
+
+% ==============================================================================
+% PART 1: THE BIG PICTURE & SATELLITE BASICS
+% ==============================================================================
+\section{Part 1: The Big Picture \& Satellite Basics (From Scratch)}
+
+\begin{qbox}{Q1.1: What problem are we actually solving? Why do we need two different satellites?}
+\textbf{Answer:}
+Earth-observing satellites orbit 700 km above us taking photos of farms, rivers, forests, floods, and cities. However, at any given moment, \textbf{more than 50\% of the Earth's sky is covered by clouds!}
+\begin{itemize}[leftmargin=18pt]
+    \item \textbf{Satellite \#1: Sentinel-2 (The Optical Camera):} Works just like your phone camera. It captures rich colors (Red, Green, Blue, and Near-Infrared). \textbf{Problem:} Sunlight cannot pass through thick clouds. Whenever there is a cloud, Sentinel-2 only sees a giant white blob!
+    \item \textbf{Satellite \#2: Sentinel-1 (The SAR Radar Sensor):} Works like bat sonar or hospital X-rays. Instead of waiting for sunlight, it shoots its own \textbf{microwave radio beams} down to Earth and measures how the echoes bounce back. \textbf{Superpower:} Microwaves have wavelengths of $\sim 5.5\text{ cm}$, which are thousands of times larger than tiny cloud water droplets! So radar beams pass \textbf{straight through thick clouds, smoke, and even darkness at night} as if the clouds aren't even there!
+\end{itemize}
+
+\textbf{Our Goal:} Teach an AI neural network (\textbf{ECRformer}) to look at the cloudy optical photo + the cloud-piercing radar echo, and \textbf{paint back the missing colors and sharp ground structures} underneath the clouds!
+\end{qbox}
+
+\begin{analogybox}{The Blindfolded Sculptor and the Painter}
+Imagine a painter (\textbf{Sentinel-2 Optical}) trying to paint a landscape, but thick fog rolls in and blocks half the town. Standing next to the painter is a sculptor with magic long sticks (\textbf{Sentinel-1 SAR Radar}) who can reach right through the fog and feel the exact shape of every roof, road, river, and tree!
+\textbf{ECRformer} is the translator who listens to what the radar sculptor feels and tells the painter exactly what colors and sharp edges to draw inside the fog!
+\end{analogybox}
+
+\begin{qbox}{Q1.2: What do VV and VH mean in Sentinel-1 SAR Radar?}
+\textbf{Answer:}
+SAR stands for \textbf{Synthetic Aperture Radar}. When the satellite shoots a microwave pulse, the wave vibrates vertically (\textbf{V}). When it hits the ground and bounces back, two things can happen:
+\begin{enumerate}[leftmargin=18pt]
+    \item \textbf{VV (Vertical Send $\to$ Vertical Receive):} Measures \textbf{surface roughness}. Calm water is smooth like a mirror, so the radar beam bounces away and never returns (looks pitch black). Concrete buildings and rocky ground are rough, so they bounce a strong echo straight back (looks bright).
+    \item \textbf{VH (Vertical Send $\to$ Horizontal Receive):} Measures \textbf{complex 3D volume scattering} (like tree branches and crop leaves). When a vertical wave hits a forest canopy, the leaves twist the wave so it bounces back horizontally!
+\end{enumerate}
+Together, \textbf{VV + VH (2 channels)} give the AI a complete geometric blueprint of water, buildings, roads, and forests underneath any cloud!
+\end{qbox}
+
+\newpage
+
+% ==============================================================================
+% PART 2: DATA & PREPROCESSING (QUESTIONS & ANSWERS)
+% ==============================================================================
+\section{Part 2: Data \& Preprocessing (Questions \& Answers)}
+
+\begin{qbox}{Q2.1: In the dataset (\texttt{fall} subset), is the data saved as images (\texttt{.png}/\texttt{.jpg}) or numbers?}
+\textbf{Answer:}
+It is saved \textbf{100\% in numerical format} as compressed NumPy archive files (\textbf{\texttt{.npz}}), \textbf{NOT} as \texttt{.png} or \texttt{.jpg} images!
+
+Every single \texttt{.npz} file on your hard drive (e.g., \texttt{ROIs1970\_fall\_s2\_119\_p100.npz}) is a zip-like container holding 5 arrays of 32-bit decimal numbers (\texttt{float32}):
+\begin{center}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l c c l}
+\toprule
+\textbf{Key in \texttt{.npz}} & \textbf{Array Shape} & \textbf{Number Range} & \textbf{What the Numbers Represent} \\
+\midrule
+\texttt{s2\_cloudy} & $[256, 256, 4]$ & $0.0 \text{ to } 1.0$ & Cloudy optical reflectance (Red, Green, Blue, NIR) \\
+\texttt{s1} & $[256, 256, 2]$ & $-35.0 \text{ to } 0.0\text{ dB}$ & Radar backscatter in decibels (VV, VH) \\
+\texttt{s2\_clear} & $[256, 256, 4]$ & $0.0 \text{ to } 1.0$ & Cloud-free ground truth optical reflectance \\
+\texttt{mask} & $[256, 256]$ & $0.0 \text{ to } 1.0$ & Cloud probability mask ($0=\text{Clear}, 1=\text{Cloud}$) \\
+\texttt{cf} & $1\text{ number}$ & $0.0 \text{ to } 1.0$ & Total fraction of the patch covered by clouds \\
+\bottomrule
+\end{tabular}%
+}
+\end{center}
+\end{qbox}
+
+\begin{qbox}{Q2.2: Why can't we just store the satellite data as normal \texttt{.jpg} or \texttt{.png} pictures?}
+\textbf{Answer:}
+Three big reasons:
+\begin{enumerate}[leftmargin=18pt]
+    \item \textbf{Too Many Channels:} Normal \texttt{.jpg}/\texttt{.png} images only hold 3 color channels (Red, Green, Blue). Our optical satellite has \textbf{4 channels} (including invisible Near-Infrared \textbf{B08}, which plants reflect strongly), plus \textbf{2 radar channels} = 6 channels total!
+    \item \textbf{Negative Numbers in Radar:} Radar echoes are measured in \textbf{decibels (dB)}, which are negative numbers like $-22.4\text{ dB}$ or $-11.8\text{ dB}$. Normal image files can only store whole positive integers from $0$ to $255$.
+    \item \textbf{Precision Loss:} Standard images crush smooth physical measurements into 256 steps ($0\text{--}255$). Scientific AI needs exact floating-point decimals like $0.08472$ to measure true surface reflectance.
+\end{enumerate}
+\end{qbox}
+
+\begin{qbox}{Q2.3: How do we find the Cloud Mask (\texttt{M}) in preprocessing? How does the computer separate White (Cloud) from Black (Clear Land)?}
+\textbf{Answer:}
+This is a classic trap! You might think: \textit{``Just check if a pixel looks bright white!''}
+\textbf{Why that fails:} If you only check for bright white pixels, then \textbf{snow on mountains, white concrete rooftops, desert sand, and beaches} will all be falsely marked as clouds!
+
+\begin{blackbox}{How \texttt{s2cloudless} Detects Real Clouds Using Invisible Light}
+During preprocessing (\texttt{rebuild\_cache\_v3.py}), we use the official European Space Agency (ESA) machine-learning cloud detector called \textbf{\texttt{s2cloudless}} (\texttt{S2PixelCloudDetector}). It inspects \textbf{all 13 wavelengths} of Sentinel-2, especially two invisible infrared bands:
+\begin{itemize}[leftmargin=18pt]
+    \item \textbf{The Cirrus Band (Band 10, $1375\text{ nm}$):} Water vapor in the lower atmosphere absorbs 100\% of sunlight at this wavelength. That means the Earth's ground (even white snow or white roofs!) looks \textbf{pitch black} in Band 10. Only high-altitude clouds sit above the water vapor and reflect Band 10 brightly!
+    \item \textbf{Short-Wave Infrared (SWIR, Bands 11 \& 12):} Desert sand and white buildings reflect SWIR strongly, while water droplets inside clouds absorb SWIR differently.
+\end{itemize}
+\texttt{s2cloudless} outputs a probability from $0.0$ ($0\%$ chance of cloud) to $1.0$ ($100\%$ chance of cloud) for every pixel:
+\begin{itemize}[leftmargin=18pt]
+    \item \textbf{White in Mask ($\mathbf{M} = 1.0$):} Cloud probability $> 40\%$. The optical view is blocked!
+    \item \textbf{Black in Mask ($\mathbf{M} = 0.0$):} Clear sky ($< 40\%$). The ground is clearly visible!
+    \item \textbf{2-Pixel Dilation Border:} We expand the white cloud mask outward by 2 pixels (\texttt{dilation\_size=2}) so thin, semi-transparent haze around cloud edges is also caught!
+\end{itemize}
+\end{blackbox}
+
+\begin{lstlisting}[caption={Exact Preprocessing Code That Generates the Cloud Mask (from \texttt{rebuild\_cache\_v3.py})}]
+from s2cloudless import S2PixelCloudDetector
+import tifffile as tiff
+import numpy as np
+
+# 1. Initialize ESA's multi-spectral cloud detector
+detector = S2PixelCloudDetector(
+    threshold=0.4,      # Any pixel with > 40% cloud probability becomes Cloud (1.0)
+    average_over=4,     # Smooths probabilities over a 4x4 window to remove noise
+    dilation_size=2,    # Expands cloud border by 2 pixels to catch thin edge haze
+    all_bands=True      # Uses all 13 Sentinel-2 spectral bands (including Cirrus & SWIR)
+)
+
+# 2. Load raw 16-bit GeoTIFF satellite numbers (0 to 10,000) and scale to [0.0, 1.0]
+cloudy_img = tiff.imread("s2_cloudy_scene.tif")
+scaled = np.expand_dims(cloudy_img.astype(np.float32) / 10000.0, axis=0)
+
+# 3. Predict cloud probability map [256, 256] in [0.0, 1.0]
+prob_map = detector.get_cloud_probability_maps(scaled)[0]
+
+# 4. Separate into White (1.0 = Cloud) and Black (0.0 = Clear Land)
+mask = (prob_map > 0.4).astype(np.float32)
+\end{lstlisting}
+\end{qbox}
+
+\begin{qbox}{Q2.4: How do we preprocess the \texttt{.npz} numbers to feed them into ECRformer?}
+\textbf{Answer:}
+Before feeding a patch into ECRformer, our dataset loader (\texttt{CachedSEN12MSCRDataset} in \texttt{backend/data/cache\_dataset.py}) performs \textbf{4 steps}:
+\begin{enumerate}[leftmargin=18pt]
+    \item \textbf{Channel Reordering (\texttt{H, W, C} $\to$ \texttt{C, H, W}):} NumPy stores arrays as \texttt{[Height, Width, Channels]} ($[256, 256, 4]$), whereas PyTorch neural networks require \texttt{[Channels, Height, Width]} ($[4, 256, 256]$).
+    \item \textbf{SAR Radar Normalization:} Raw radar decibels are negative ($\text{VV} \in [-25, 0]\text{ dB}$, $\text{VH} \in [-35, 0]\text{ dB}$). Neural networks work best when all inputs are between $0.0$ and $1.0$. So we linearly rescale them:
+    $$\text{VV}_{\text{norm}} = \frac{\text{clamp}(\text{VV}, -25, 0) + 25}{25}, \qquad \text{VH}_{\text{norm}} = \frac{\text{clamp}(\text{VH}, -35, 0) + 35}{35}$$
+    \item \textbf{Soft Cloud Mask Smoothing:} We apply a tiny $5\times 5$ average pool to the dilated binary mask so the edge between $0.0$ (black) and $1.0$ (white) has a smooth feathering ramp ($0.2, 0.5, 0.8$).
+    \item \textbf{Random $128\times 128$ Crop (During Training Only!):} During training, we slice the exact same random $128\times 128$ square window out of \texttt{s2\_cloudy}, \texttt{s1}, \texttt{s2\_clear}, and \texttt{mask}. During testing, we keep the full $256\times 256$ size!
+\end{enumerate}
+
+\begin{lstlisting}[caption={Exact Data Loading \& Preprocessing Code (from \texttt{backend/data/cache\_dataset.py})}]
+def __getitem__(self, idx):
+    data = np.load(self.files[idx])
+    # 1. Load float32 numerical arrays and transpose [H, W, C] -> [C, H, W]
+    s2_cloudy_t = torch.from_numpy(data['s2_cloudy'].astype(np.float32).transpose(2, 0, 1)) # [4, 256, 256]
+    s1_t        = torch.from_numpy(data['s1'].astype(np.float32).transpose(2, 0, 1))        # [2, 256, 256]
+    s2_clear_t  = torch.from_numpy(data['s2_clear'].astype(np.float32).transpose(2, 0, 1))  # [4, 256, 256]
+    mask_t      = torch.from_numpy(data['mask'].astype(np.float32)).unsqueeze(0)            # [1, 256, 256]
+
+    # 2. SAR Radar Normalization from negative decibels (dB) to [0.0, 1.0]
+    vv = (torch.clamp(s1_t[0:1], -25.0, 0.0) + 25.0) / 25.0
+    vh = (torch.clamp(s1_t[1:2], -35.0, 0.0) + 35.0) / 35.0
+    s1_t = torch.cat([vv, vh], dim=0)
+
+    # 3. Random 128x128 crop during Training (None = full 256x256 during Testing!)
+    if self.crop_size is not None:
+        top = torch.randint(0, 256 - self.crop_size + 1, (1,)).item()
+        left = torch.randint(0, 256 - self.crop_size + 1, (1,)).item()
+        s2_cloudy_t = s2_cloudy_t[:, top:top+128, left:left+128]
+        s1_t        = s1_t[:, top:top+128, left:left+128]
+        s2_clear_t  = s2_clear_t[:, top:top+128, left:left+128]
+        mask_t      = mask_t[:, top:top+128, left:left+128]
+
+    return s2_cloudy_t, s1_t, s2_clear_t, cf, mask_t
+\end{lstlisting}
+\end{qbox}
+
+\begin{qbox}{Q2.5: What is ``Opaque Cloud Cutout'' (Cloud Mask Role \texttt{M1}) during training, and why does the AI try to ``cheat'' without it?}
+\textbf{Answer:}
+In satellite datasets, about half of the ``cloudy'' photos are actually \textbf{thin, semi-transparent haze} where you can still faintly see the outlines of roads and fields underneath.
+\begin{itemize}[leftmargin=18pt]
+    \item \textbf{How the AI Cheats:} Neural networks are lazy! If the AI can dimly see road edges through thin optical haze, it learns a shortcut: \textit{``Just boost the contrast of the cloudy optical photo and completely ignore the Sentinel-1 SAR radar!''} Then, when tested on a \textbf{100\% thick opaque white cloud}, the AI fails completely and outputs a blurry smudge!
+    \item \textbf{How Role \texttt{M1} (\texttt{apply\_opaque\_cloud\_cutout}) Stops Cheating:} During training, on 65\% of patches, we use the Cloud Mask $\mathbf{M}$ to \textbf{intentionally blind} the optical image inside the cloud (applying a heavy $29\times 29$ blur veil over the cloudy pixels). Because all optical edges inside $\mathbf{M}$ are wiped out, the AI is \textbf{forced} to read the Sentinel-1 SAR radar channels to reconstruct the ground!
+\end{itemize}
+
+\begin{lstlisting}[caption={Opaque Cloud Cutout Anti-Cheating Augmentation (from \texttt{backend/losses/cloud\_structure\_loss.py})}]
+def apply_opaque_cloud_cutout(s2_c: torch.Tensor, mask: torch.Tensor, prob: float = 0.65):
+    # Two passes of 15x15 average pooling erase all sharp ground edges inside the cloud
+    veil = F.avg_pool2d(F.pad(s2_c, (7, 7, 7, 7), mode="reflect"), kernel_size=15, stride=1)
+    veil = F.avg_pool2d(F.pad(veil, (7, 7, 7, 7), mode="reflect"), kernel_size=15, stride=1)
+
+    # Cloud Mask M (Role M1) replaces cloudy pixels with the featureless veil!
+    alpha = torch.clamp((mask - 0.15) / 0.85, 0.0, 1.0) * do_aug
+    s2_aug = (1.0 - alpha) * s2_c + alpha * veil
+    return torch.clamp(s2_aug, 0.0, 1.0)
+\end{lstlisting}
+\end{qbox}
+
+\newpage
+
+% ==============================================================================
+% PART 3: TRAINING WITH ECRFORMER (OPENING THE GENERATOR BLACK BOX)
+% ==============================================================================
+\section{Part 3: Training with ECRformer (Opening the Generator Black Box)}
+
+\begin{qbox}{Q3.1: What is a ``Convolution'' and what is a ``Channel''? (Explained for a 7th Grader)}
+\textbf{Answer:}
+\begin{itemize}[leftmargin=18pt]
+    \item \textbf{What is a Convolution ($3\times 3$ Kernel)?} Imagine sliding a tiny $3\times 3$ magnifying glass across a grid of numbers, one step at a time. Inside the magnifying glass are 9 learned weights. At each spot, it multiplies the 9 pixel numbers by its 9 weights and adds them up to detect a specific pattern (like a vertical road edge, a corner, or a bumpy texture).
+    \item \textbf{What is a Channel ($C$)?} Think of channels as \textbf{transparent plastic sheets stacked on top of each other}, each highlighting one specific feature across the map:
+    \begin{itemize}
+        \item Sheet \#1 might light up wherever there is \textbf{water}.
+        \item Sheet \#2 might light up wherever there are \textbf{sharp building corners in radar}.
+        \item Sheet \#3 might light up wherever there is \textbf{green forest chlorophyll}.
+    \end{itemize}
+    When we say a layer has $C=64$ channels, it means the network is maintaining \textbf{64 different feature maps} describing the terrain simultaneously!
+\end{itemize}
+\end{qbox}
+
+\begin{qbox}{Q3.2: Why does ECRformer have TWO separate front doors (``Decoupled Stem'') and why does the Cloud Mask enter here (Role \texttt{M2})?}
+\textbf{Answer:}
+Optical photos (sunlight reflectance) and SAR Radar (microwave echoes) obey completely different laws of physics! If we mashed them into a single convolution right at the start, their raw numbers would clash.
+
+Instead, \texttt{ECRformerAdaptedModel} uses a \textbf{Decoupled Two-Branch Stem}:
+\begin{enumerate}[leftmargin=18pt]
+    \item \textbf{Branch 0 (Radar Door):} A $7\times 7$ convolution that takes \textbf{2 SAR channels} (VV, VH) and extracts \textbf{16 radar feature channels}.
+    \item \textbf{Branch 1 (Optical + Mask Door — Role \texttt{M2}):} A $7\times 7$ convolution that takes \textbf{4 Optical channels + 1 Cloud Mask channel = 5 channels} and extracts \textbf{16 optical feature channels}.
+    \item \textbf{Fusion (\texttt{Concat}):} Once both sensors are translated into a common language of 16 feature maps each, we stack them together into \textbf{$16 + 16 = 32$ channels}!
+\end{enumerate}
+\textbf{Why feed Cloud Mask \texttt{M2} into Branch 1?} So from the very first layer, every neuron in the optical branch knows: \textit{``Wait! The mask says $\mathbf{M}=1.0$ here—do NOT trust the white optical pixels at this spot; wait for Branch 0's radar features instead!''}
+\end{qbox}
+
+\begin{qbox}{Q3.3: How does the Hourglass (Encoder $\to$ Bottleneck $\to$ Decoder) and Skip Connections work inside ECRformer?}
+\textbf{Answer:}
+Look at Box 2 in the Master Diagram. ECRformer is shaped like an \textbf{hourglass (U-Net)}:
+\begin{enumerate}[leftmargin=18pt]
+    \item \textbf{The Encoder (Left Half — Shrinking Size, Growing Channels):}
+    Starts at $128\times 128$ (32 channels) $\to$ shrinks to $64\times 64$ (64 channels) $\to$ shrinks to $32\times 32$ (128 channels) $\to$ reaches the narrow center (\textbf{Bottleneck}) at $16\times 16$ (256 channels).
+    \textit{How does it shrink without losing data?} Using \textbf{\texttt{PixelUnshuffle}}: it takes every $2\times 2$ square of pixels and folds them into 4 separate channels!
+    \item \textbf{The TSA Bottleneck (Center):}
+    At $16\times 16$ with 256 rich feature channels, the network uses a \textbf{Transformer (MDTA)} to connect global information across the entire scene.
+    \item \textbf{The Decoder (Right Half — Expanding Back to Full Size):}
+    Uses \textbf{\texttt{PixelShuffle}} to unfold channels back into spatial pixels: $16\times 16 \to 32\times 32 \to 64\times 64 \to 128\times 128$, ending with a Final $3\times 3$ Convolution that outputs \textbf{4 optical channels} ($\mathbf{P}_{\text{dir}}$).
+    \item \textbf{Skip Connections (The Overhead Bridges):}
+    When you shrink an image down to $16\times 16$, tiny 1-pixel road positions get blurry. So we build \textbf{3 overhead bridges (Skip 0, Skip 1, Skip 2)} that copy the high-resolution maps from the Encoder directly across to the Decoder!
+\end{enumerate}
+\end{qbox}
+
+\begin{qbox}{Q3.4: BLACK BOX EXPLAINED — What is MDTA (Channel-Based Attention vs. Pixel-Based Attention), and how does it let a $128\times 128$ trained model run on $256\times 256$ test images?}
+\textbf{Answer:}
+This is one of the most important concepts in modern Computer Vision!
+
+\begin{blackbox}{Pixel-Based Attention vs. Channel-Based Attention (MDTA)}
+\textbf{1. Standard Transformer (Pixel-Based Attention — ``WHERE is it?''):}
+In a normal Vision Transformer (ViT), every single pixel compares itself to every other pixel.
+\begin{itemize}[leftmargin=18pt]
+    \item If a feature map has size $H \times W$, there are $N = H \cdot W$ pixels.
+    \item The attention table has size $(H \cdot W) \times (H \cdot W)$.
+    \item If you train on $128\times 128$ (where the bottleneck is $16\times 16 = 256$ pixels) and then test on $256\times 256$ (where the bottleneck is $32\times 32 = 1{,}024$ pixels), the attention table jumps by \textbf{16$\times$ in size} and fixed positional embeddings \textbf{crash with a shape error}!
+\end{itemize}
+
+\textbf{2. ECRformer's MDTA (Channel-Based Attention — ``WHAT feature correlates with WHAT feature?''):}
+Instead of comparing pixel coordinates $(x_1, y_1)$ to $(x_2, y_2)$, \textbf{Multi-DConv Head Transposed Attention (MDTA)} flips (transposes) the matrix multiplication so it compares \textbf{Channel to Channel}!
+\begin{itemize}[leftmargin=18pt]
+    \item Imagine Channel \#14 detects \textbf{``Radar Building Corners''} and Channel \#52 generates \textbf{``Red Clay Roof Color''}.
+    \item MDTA computes the dot-product across all pixels between Channel \#14 and Channel \#52:
+    $$\mathbf{A}_{\text{channel}} = \mathbf{Q} \cdot \mathbf{K}^T \in \mathbb{R}^{C \times C}$$
+    \item Look at the shapes: $\mathbf{Q}$ has shape $[C, H\cdot W]$ and $\mathbf{K}^T$ has shape $[H\cdot W, C]$. When you multiply $[C, HW] \times [HW, C]$, the spatial size $HW$ \textbf{cancels out (is summed over)}, leaving an Attention Matrix of shape \textbf{$[C, C]$} ($256 \times 256$ channels)!
+\end{itemize}
+\end{blackbox}
+
+\textbf{Why $128\times 128 \to 256\times 256$ works automatically:}
+Because every convolution is a sliding $3\times 3$ window (which can slide over any size grid) and MDTA's attention matrix is always $[C, C]$ regardless of $H$ and $W$, \textbf{not a single weight inside ECRformer depends on the image height or width!} You can train on $128\times 128$ crops to save GPU memory and test on $256\times 256$ (or $512\times 512$) with \textbf{zero code changes}!
+
+\begin{lstlisting}[caption={Exact MDTA Channel-Transposed Attention Code (from \texttt{backend/models/module.py})}]
+class TransposedAttention(nn.Module):
+    """Multi-DConv Head Transposed Self-Attention (MDTA)."""
+    def forward(self, x):
+        b, c, h, w = x.shape
+        q, k, v = self.qkv_dwconv(self.qkv(x)).chunk(3, dim=1)
+
+        # Reshape each channel into a flat vector of length (h * w)
+        q = rearrange(q, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
+        k = rearrange(k, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
+        v = rearrange(v, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
+
+        q = torch.nn.functional.normalize(q, dim=-1)
+        k = torch.nn.functional.normalize(k, dim=-1)
+
+        # MAGIC STEP: [c, h*w] @ [h*w, c] -> [c, c] Channel Attention Matrix!
+        # Notice (h*w) disappears! Works identically for 128x128 or 256x256!
+        attn = (q @ k.transpose(-2, -1)) * self.temperature
+        attn = attn.softmax(dim=-1)
+
+        out = (attn @ v) # [c, c] @ [c, h*w] -> [c, h*w]
+        return self.project_out(rearrange(out, 'b head c (h w) -> b (head c) h w', head=self.num_heads, h=h, w=w))
+\end{lstlisting}
+\end{qbox}
+
+\begin{qbox}{Q3.5: What does ECRformer output during training, and do we blend the Cloud Mask before checking the training losses?}
+\textbf{Answer:}
+\begin{rulebox}{No Blending Before Training Losses!}
+During training, ECRformer's final $3\times 3$ convolution outputs \textbf{\texttt{pred\_direct}} ($\mathbf{P}_{\text{dir}}$), a raw $128\times 128\times 4$ optical prediction.
+\textbf{We pass \texttt{pred\_direct} DIRECTLY into all training losses and PatchGAN—we do NOT blend the cloud mask before PatchGAN!}
+Why? Because if we blended $(1 - \mathbf{M})\mathbf{X}_{\text{cloudy}}$ before calculating the loss, the clear areas would automatically have zero error, and the neural network would get lazy and output garbage in clear regions! By grading \texttt{pred\_direct} directly, we force ECRformer to learn to paint a complete, seamless satellite photo everywhere.
+\end{rulebox}
+\end{qbox}
+
+\newpage
+
+% ==============================================================================
+% PART 4: PATCHGAN & SMART LOSSES (WHY AI BLURS & HOW WE SHARPEN IT)
+% ==============================================================================
+\section{Part 4: PatchGAN \& Smart Losses (Making Blurry Images Razor-Sharp)}
+
+\begin{qbox}{Q4.1: Why do normal AI cloud-removal models produce blurry, smudged images?}
+\textbf{Answer:}
+It is caused by two classic traps when using simple pixel-by-pixel $\mathcal{L}_1$ loss ($|\text{Predicted} - \text{Target}|$):
+\begin{enumerate}[leftmargin=18pt]
+    \item \textbf{The ``Safe Average'' Trap:} Under a thick cloud, the radar says \textit{``there is a field of trees here.''} Could the exact tree leaves be dark green ($0.05$), medium green ($0.10$), or bright green ($0.15$)? If the AI guesses a sharp texture and is off by 1 pixel, $\mathcal{L}_1$ punishes it heavily. So the AI learns a cowardly trick: \textbf{paint a flat, blurry average ($0.10$)} to get the lowest average penalty!
+    \item \textbf{The ``Double-Edge Penalty'':} Sentinel-1 radar and Sentinel-2 optical satellites fly in different orbits, so a road edge in radar might be shifted by \textbf{1 pixel} compared to the optical photo. If the AI draws a razor-sharp road shifted by 1 pixel, pixel-by-pixel $\mathcal{L}_1$ punishes it \textbf{twice} (once where the road was supposed to be, and once where the AI drew it). To avoid this double punishment, standard $\mathcal{L}_1$ forces the AI to smear the road into a blurry gray band!
+\end{enumerate}
+\end{qbox}
+
+\begin{qbox}{Q4.2: How do Cloud Mask Roles \texttt{M3} (Scale-Decoupled L1) and \texttt{M4} (VGG + Sobel Boost) solve the blur trap?}
+\textbf{Answer:}
+\begin{itemize}[leftmargin=18pt]
+    \item \textbf{Role \texttt{M3} — Scale-Decoupled L1 (\texttt{compute\_scale\_decoupled\_l1}):}
+    We use the Cloud Mask $\mathbf{M}$ to change how $\mathcal{L}_1$ grades the image:
+    \begin{itemize}
+        \item \textbf{Outside Clouds ($\mathbf{M}=0$):} Apply strict $1\times 1$ pixel-by-pixel $\mathcal{L}_1$ so clear land stays pixel-exact.
+        \item \textbf{Inside Clouds ($\mathbf{M}=1$):} Turn off 80\% of the $1\times 1$ pixel $\mathcal{L}_1$ and replace it with \textbf{$4\times 4$ and $8\times 8$ average-pooled $\mathcal{L}_1$}! This forces the AI to get the \textbf{average regional color right} inside the cloud, while freeing it from the 1-pixel double-edge penalty so it is allowed to draw sharp edges!
+    \end{itemize}
+    \item \textbf{Role \texttt{M4} — VGG Perceptual + Sobel Edge Loss (\texttt{CloudStructurePerceptualLoss}):}
+    Measures edge sharpness (Sobel gradients) and deep texture features (VGG-16) and multiplies the penalty by \textbf{\texttt{cloud\_boost = 2.5$\times$}} inside the Cloud Mask $\mathbf{M}$.
+\end{itemize}
+
+\begin{lstlisting}[caption={Scale-Decoupled L1 Loss Using Cloud Mask Role M3 (from \texttt{backend/losses/patchgan\_loss.py})}]
+def compute_scale_decoupled_l1(pred_direct, target, mask, projs=None):
+    # 1. Clear region (1 - 0.8*M): strict 1x1 pixel L1
+    l1_1x1_clear = (torch.abs(pred_direct - target) * (1.0 - 0.80 * mask)).mean()
+
+    # 2. Cloudy region (M): 4x4 and 8x8 pooled L1 checks regional color, NOT 1-pixel shift!
+    p_4 = F.avg_pool2d(pred_direct, kernel_size=4, stride=2, padding=1)
+    t_4 = F.avg_pool2d(target,      kernel_size=4, stride=2, padding=1)
+    m_4 = F.avg_pool2d(mask,        kernel_size=4, stride=2, padding=1)
+    l1_low_4 = (torch.abs(p_4 - t_4) * (1.0 + m_4)).mean()
+    ...
+\end{lstlisting}
+\end{qbox}
+
+\begin{qbox}{Q4.3: BLACK BOX EXPLAINED — What is PatchGAN (\texttt{D}), what exact inputs does it take, and is its output an image or numbers?}
+\textbf{Answer:}
+\begin{analogybox}{The Art Forger (Generator G) vs. The Art Detective (PatchGAN D)}
+Think of \textbf{ECRformer ($G$)} as an \textbf{Art Forger} trying to paint realistic terrain over a cloud hole, and \textbf{PatchGAN ($D$)} as a strict \textbf{Art Detective} with a magnifying glass.
+\begin{itemize}[leftmargin=18pt]
+    \item If the Forger paints a blurry smudge inside the cloud, the Detective immediately yells: \textit{``FAKE! Real satellite photos have crisp rivers and sharp building roofs, not blurry smudges!''}
+    \item Crucial Point: \textbf{The Detective (PatchGAN) NEVER holds a paintbrush!} PatchGAN does \textbf{NOT} output an image. It outputs a \textbf{scorecard of numbers} grading whether each patch looks Real or Fake!
+\end{itemize}
+\end{analogybox}
+
+\begin{blackbox}{Inside the 11-Channel Conditional PatchGAN Discriminator}
+\textbf{1. What exact inputs go into PatchGAN ($D$)?}
+We feed an \textbf{11-channel stack} of size $128\times 128$ into PatchGAN:
+\begin{itemize}[leftmargin=18pt]
+    \item \textbf{4 Channels — Optical Image:} Either ECRformer's raw prediction $\mathbf{P}_{\text{dir}}$ (when grading Fake) OR the real clear satellite target $\mathbf{Y}_{\text{real}}$ (when grading Real).
+    \item \textbf{4 Channels — $5\times 5$ High-Pass Edge Residual ($\mathbf{R}_{\text{HP}}$):} Computed as $(\text{Optical} - \text{AvgPool}_{5\times 5}(\text{Optical})) \times 10$. This subtracts smooth colors leaving \textbf{only fine edges and textures}. If ECRformer predicted a blurry cloud hole, $\mathbf{R}_{\text{HP}}$ is flat zero there, making blur instantly obvious to the Detective!
+    \item \textbf{2 Channels — Sentinel-1 SAR Radar ($\mathbf{X}_{S1}$):} So the Detective can check if the painted roads actually match the radar blueprint!
+    \item \textbf{1 Channel — Cloud Mask ($\mathbf{M}$):} Tells the Detective where the cloud hole was.
+\end{itemize}
+
+\textbf{2. What comes OUT of PatchGAN ($D$)?}
+PatchGAN passes the $128\times 128\times 11$ stack through three strided convolutions ($\div 2 \to \div 2 \to \div 2$):
+$$128\times 128 \xrightarrow{\text{Layer 1}} 64\times 64 \xrightarrow{\text{Layer 2}} 32\times 32 \xrightarrow{\text{Layer 3}} 16\times 16 \xrightarrow{\text{Head}} \mathbf{16\times 16\times 1\text{ Matrix of Numbers!}}$$
+\begin{itemize}[leftmargin=18pt]
+    \item The output is a \textbf{$16\times 16$ grid of 256 decimal numbers (logits)}—\textbf{NOT an image!}
+    \item Each single number in that $16\times 16$ grid is the Detective's grade for a \textbf{$70\times 70$ overlapping square patch} of the $128\times 128$ image:
+    \begin{itemize}
+        \item \textbf{Positive Number (e.g., $+1.2$):} \textit{``This $70\times 70$ patch looks sharp and REAL!''}
+        \item \textbf{Negative Number (e.g., $-0.9$):} \textit{``This $70\times 70$ patch is blurry and FAKE!''}
+    \end{itemize}
+\end{itemize}
+\end{blackbox}
+\end{qbox}
+
+\begin{qbox}{Q4.4: Does PatchGAN sharpen the whole image or just the blurry cloudy area? How does Cloud Mask Role \texttt{M5} work, and how does the feedback return to ECRformer?}
+\textbf{Answer:}
+\begin{enumerate}[leftmargin=18pt]
+    \item \textbf{How Cloud Mask Role \texttt{M5} Focuses PatchGAN on the Blurry Cloudy Area:}
+    We shrink the Cloud Mask $\mathbf{M}$ down to $16\times 16$ to match PatchGAN's $16\times 16$ scorecard grid, and calculate a weight for every cell:
+    $$w_{\text{patch}} = 0.25 + 0.75 \times \mathbf{M}_{\text{down}}$$
+    \begin{itemize}
+        \item Where the sky was \textbf{Clear ($\mathbf{M}=0$)}: Weight $= \mathbf{0.25}$ (light check).
+        \item Where the sky was \textbf{Cloudy ($\mathbf{M}=1$)}: Weight $= \mathbf{1.00}$ (\textbf{$4\times$ stronger penalty!}).
+    \end{itemize}
+    So PatchGAN focuses \textbf{$4\times$ harder} on forcing sharp textures inside the blurry cloud region!
+
+    \item \textbf{How Does PatchGAN Make ECRformer Sharper Without Touching the Image?}
+    During training (\texttt{loss\_g.backward()}), the $16\times 16$ scorecard numbers are combined with $\mathcal{L}_1$ and VGG losses into a single error signal. PyTorch sends \textbf{Backpropagation Gradients ($\nabla \mathcal{L}_G$)} backward (the red dashed arrow at the bottom of Phase 1 in the Master Diagram) straight into \textbf{ECRformer's convolution weights}.
+    Iteration after iteration, ECRformer's own weights learn how to draw crisp buildings, roads, and rivers so the Detective stops giving it negative scores!
+\end{enumerate}
+
+\begin{lstlisting}[caption={Conditional PatchGAN \& Cloud-Mask Weighted Loss Role M5 (from \texttt{backend/losses/patchgan\_loss.py})}]
+class ConditionalPatchGANDiscriminator(nn.Module):
+    @staticmethod
+    def _build_input(opt: torch.Tensor, s1: torch.Tensor, mask: torch.Tensor):
+        # Extract 5x5 High-Pass Edge Residual: (Image - Blurred_Image) * 10
+        low = F.avg_pool2d(F.pad(opt.float(), (2, 2, 2, 2), mode="reflect"), kernel_size=5, stride=1)
+        high_pass = (opt.float() - low) * 10.0
+        # Stack 11 channels: 4ch Optical + 4ch High-Pass + 2ch SAR + 1ch Mask
+        return torch.cat([opt.float() * 3.0, high_pass, s1.float(), mask.float()], dim=1)
+
+    def forward(self, opt, s1, mask):
+        x = self._build_input(opt, s1, mask)          # [B, 11, 128, 128]
+        f1 = self.layer1(x)                          # [B, 64, 64, 64]
+        f2 = self.layer2(f1)                         # [B, 128, 32, 32]
+        f3 = self.layer3(f2)                         # [B, 256, 16, 16]
+        f4 = self.layer4(f3)                         # [B, 256, 16, 16]
+        logits = self.head(f4)                       # [B, 1, 16, 16] -> 16x16 Numerical Grid!
+        return logits, [f1, f2, f3, f4]
+
+def compute_g_gan_and_fm_loss(disc, pred_direct, target, s1, mask, w_adv=0.015, w_fm=0.08):
+    fake_logits, fake_feats = disc(pred_direct, s1, mask)
+    # Role M5: Downsample Cloud Mask to 16x16 -> 4x stronger weight (1.0 vs 0.25) on cloudy patches!
+    m_down = F.interpolate(mask.float(), size=fake_logits.shape[-2:], mode="bilinear")
+    w_patch = 0.25 + 0.75 * m_down
+    loss_adv = -(fake_logits * w_patch).mean()
+    return w_adv * loss_adv + w_fm * loss_fm
+\end{lstlisting}
+\end{qbox}
+
+\newpage
+
+% ==============================================================================
+% PART 5: CLOUD REMOVAL INFERENCE AT 256x256 (TESTING & OUTPUT)
+% ==============================================================================
+\section{Part 5: Final Cloud Removal — Testing \& Inference at \texorpdfstring{$256\times 256$}{256x256}}
+
+\begin{qbox}{Q5.1: When and at which exact stage does $128\times 128$ become $256\times 256$? And what happens to PatchGAN during testing?}
+\textbf{Answer:}
+\begin{itemize}[leftmargin=18pt]
+    \item \textbf{When $128\times 128$ Becomes $256\times 256$:} As soon as training finishes! During evaluation/testing (Phase 2, Bottom of Master Diagram), we turn off random cropping and feed the \textbf{full $256\times 256$ native satellite scene} directly into ECRformer. Every single layer inside ECRformer now processes $4\times$ the spatial area:
+\end{itemize}
+
+\begin{center}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l c c c}
+\toprule
+\textbf{ECRformer Layer / Stage} & \textbf{Channels ($C$)} & \textbf{Training Shape ($128^2$ Crop)} & \textbf{Testing Shape ($256^2$ Full Scene)} \\
+\midrule
+1. Multimodal Input ($\mathbf{X}_{S1}, \mathbf{X}_{S2}, \mathbf{M}$) & $7$ & $[B, 7, 128, 128]$ & $[B, 7, 256, 256]$ \\
+2. Decoupled Stem + Encoder 1 & $32$ & $[B, 32, 128, 128]$ & $[B, 32, 256, 256]$ \\
+3. Encoder Stage 2 (\texttt{Enc 2}) & $64$ & $[B, 64, 64, 64]$ & $[B, 64, 128, 128]$ \\
+4. Encoder Stage 3 (\texttt{Enc 3}) & $128$ & $[B, 128, 32, 32]$ & $[B, 128, 64, 64]$ \\
+5. \textbf{TSA Bottleneck (MDTA)} & $256$ & $\mathbf{[B, 256, 16, 16]}$ & $\mathbf{[B, 256, 32, 32]}$ \\
+6. Decoder Stages 3 $\to$ 2 $\to$ 1 & $128 \to 64$ & $32^2 \to 64^2 \to 128^2$ & $64^2 \to 128^2 \to 256^2$ \\
+7. Raw Direct Output ($\mathbf{P}_{\text{dir}}$) & $4$ & $[B, 4, 128, 128]$ & $[B, 4, 256, 256]$ \\
+8. \textbf{PatchGAN Critic ($D$)} & $11 \to 1$ & $[B, 1, 16, 16]\text{ (Score Grid)}$ & \textbf{REMOVED (Not Used!)} \\
+9. \textbf{Soft-Mask Blended Output ($\hat{\mathbf{Y}}$)} & $4$ & \textit{Not Used in Loss} & $\mathbf{[B, 4, 256, 256]\text{ (Final Output)}}$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{center}
+
+\begin{itemize}[leftmargin=18pt]
+    \item \textbf{Where is PatchGAN at Test Time?} \textbf{Completely removed!} Once the Art Forger (ECRformer) has graduated and learned sharp weights (\texttt{best\_model.pth}), we don't need the Art Detective (PatchGAN) anymore. ECRformer generates sharp $256\times 256$ textures on its own in a single forward pass ($0.04\text{ seconds}$)!
+\end{itemize}
+\end{qbox}
+
+\begin{qbox}{Q5.2: How does the Cloud Mask work during Testing (Roles \texttt{I1} and \texttt{I2}), and why do we do Soft-Mask Blending at the very end?}
+\textbf{Answer:}
+At test time, the $256\times 256$ Cloud Mask $\mathbf{M}$ performs \textbf{2 jobs}:
+\begin{enumerate}[leftmargin=18pt]
+    \item \textbf{Role \texttt{I1} (Input Guide):} Enters Branch 1 (\texttt{Conv7x7(5 -> 16)}) so the encoder knows which pixels of the $256\times 256$ scene are covered by clouds.
+    \item \textbf{Role \texttt{I2} (Soft-Mask Radiometric Preservation Gate at Output):}
+    Once ECRformer outputs its raw $256\times 256$ prediction $\mathbf{P}_{\text{dir}}$, we apply the blending gate equation:
+    $$\hat{\mathbf{Y}} = (1.0 - \mathbf{M}) \odot \mathbf{X}_{\text{cloudy}} + \mathbf{M} \odot \mathbf{P}_{\text{dir}}$$
+    \begin{itemize}
+        \item \textbf{In Clear-Sky Pixels ($\mathbf{M} = 0.0$):} $(1 - 0)\mathbf{X}_{\text{cloudy}} + 0\cdot \mathbf{P}_{\text{dir}} = \mathbf{X}_{\text{cloudy}}$. We keep \textbf{100\% of the authentic real satellite pixels}! Why replace a real photograph of clear land with an AI guess?
+        \item \textbf{In Thick-Cloud Pixels ($\mathbf{M} = 1.0$):} $(1 - 1)\mathbf{X}_{\text{cloudy}} + 1\cdot \mathbf{P}_{\text{dir}} = \mathbf{P}_{\text{dir}}$. We replace the white cloud 100\% with ECRformer's sharp radar-guided reconstruction!
+        \item \textbf{At Cloud Borders ($\mathbf{M} = 0.3 \sim 0.7$):} Smoothly feathers the transition so there are \textbf{zero visible seams or cutout lines}!
+    \end{itemize}
+\end{enumerate}
+
+\begin{lstlisting}[caption={Complete Inference Forward Pass, Soft-Mask Blending (Role I2), and PNG Image Conversion}]
+# 1. Forward pass inside ECRformerAdaptedModel (backend/models/ecrformer_adapted.py)
+def forward(self, s2_cloudy, s1, mask):
+    # Role I1: Concatenate SAR (2ch) + Cloudy Optical (4ch) + Cloud Mask (1ch) = 7 channels
+    x_in = torch.cat([s1, s2_cloudy, mask], dim=1)     # [1, 7, 256, 256]
+
+    # Generator G predicts raw 4-band optical reflectance P_dir
+    pred_direct, projs = self.backbone(x_in)           # [1, 4, 256, 256]
+
+    # Role I2: Soft-Mask Radiometric Preservation Gate
+    out = (1.0 - mask) * s2_cloudy + mask * pred_direct
+    return out, pred_direct, projs
+
+# 2. Convert floating-point reflectance tensor [1, 4, 256, 256] into a visible RGB .png photo
+def save_satellite_rgb_png(out_tensor, save_path="cloud_free_result.png"):
+    # Take first 3 channels (Red=B04, Green=B03, Blue=B02) and transpose (C,H,W) -> (H,W,C)
+    rgb = out_tensor[0, :3].detach().cpu().numpy().transpose(1, 2, 0) # [256, 256, 3]
+    # Multiply by 3.0x brightness (since natural Earth reflectance is ~0.10) and scale to 0..255
+    rgb_8bit = (np.clip(rgb * 3.0, 0.0, 1.0) * 255.0).round().astype(np.uint8)
+    Image.fromarray(rgb_8bit).save(save_path)
+\end{lstlisting}
+\end{qbox}
+
+\end{document}

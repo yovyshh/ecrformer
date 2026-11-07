@@ -1,0 +1,149 @@
+\documentclass[11pt,a4paper,oneside]{book}
+\usepackage{fontspec}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsfonts,mathtools}
+\usepackage{booktabs,tabularx,array,multirow}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,decorations.pathreplacing,shapes.geometric,calc}
+\usepackage{listings}
+\usepackage{microtype}
+\usepackage{fancyhdr}
+\setlength{\headheight}{15pt}
+\addtolength{\topmargin}{-3pt}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+\usepackage[colorlinks=true,linkcolor=blue!70!black,citecolor=green!50!black,urlcolor=purple!70!black]{hyperref}
+
+% Define color palette
+\definecolor{primaryblue}{RGB}{24, 76, 120}
+\definecolor{darkteal}{RGB}{18, 98, 102}
+\definecolor{alertred}{RGB}{168, 32, 26}
+\definecolor{codebg}{RGB}{246, 248, 250}
+\definecolor{boxbg}{RGB}{245, 248, 252}
+
+% Custom pedagogical boxes
+\tcbset{
+    colupper=black,
+    coltitle=white,
+    fontupper=\color{black},
+    after={\par\color{black}\normalcolor}
+}
+
+\newtcolorbox{conceptbox}[1]{
+    colback=blue!3!white,
+    colframe=primaryblue,
+    fonttitle=\bfseries\sffamily,
+    title={Concept: #1},
+    arc=3pt, breakable
+}
+
+\newtcolorbox{mathbox}[1]{
+    colback=teal!3!white,
+    colframe=darkteal,
+    fonttitle=\bfseries\sffamily,
+    title={Mathematical Derivation \& Numerical Example: #1},
+    arc=3pt, breakable
+}
+
+\newtcolorbox{codebox}[1]{
+    colback=gray!5!white,
+    colframe=black!70,
+    fonttitle=\bfseries\sffamily,
+    title={Code Implementation Traceability: #1},
+    arc=3pt, breakable
+}
+
+\newtcolorbox{warningbox}[1]{
+    colback=red!3!white,
+    colframe=alertred,
+    fonttitle=\bfseries\sffamily,
+    title={Common Pitfall \& Caution: #1},
+    arc=3pt, breakable
+}
+
+\newtcolorbox{researchbox}[1]{
+    colback=purple!3!white,
+    colframe=purple!70!black,
+    fonttitle=\bfseries\sffamily,
+    title={Research-Level Deep Dive: #1},
+    arc=3pt, breakable
+}
+
+% Code listing settings
+\lstset{
+    backgroundcolor=\color{codebg},
+    basicstyle=\small\ttfamily\color{black},
+    keywordstyle=\color{primaryblue}\bfseries,
+    commentstyle=\color{gray!80!black}\itshape,
+    stringstyle=\color{teal!70!black},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    stepnumber=1,
+    numbersep=8pt,
+    tabsize=4,
+    showstringspaces=false,
+    breaklines=true,
+    frame=single,
+    rulecolor=\color{gray!30}
+}
+
+% Header and footer
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\nouppercase{\leftmark}}
+\fancyhead[R]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\title{\Huge \textbf{Understanding ECRformer-Light}\\[0.5em]
+\Large \textbf{A Beginner-to-Research-Level Guide to Multimodal Satellite Image Cloud Removal}\\[1em]
+\large From Neural Network Fundamentals to SAR-Guided Optical Reconstruction, Transformer Attention, Cloud Masks, Loss Functions, and Model Training}
+\author{\textbf{Research \& Engineering Documentation Team}}
+\date{October 2026}
+
+\begin{document}
+
+\frontmatter
+\maketitle
+
+\chapter*{Preface}
+This textbook provides a comprehensive, self-contained educational curriculum designed to teach the fundamentals and advanced engineering of multimodal satellite image cloud removal from the ground up. Whether you are encountering deep learning and tensors for the very first time or preparing to defend research-level architectural innovations in generative computer vision, this text explains every concept with intuitive everyday analogies, step-by-step numerical worked examples, formal mathematical derivations, and verified line-by-line source-code traceability.
+
+\tableofcontents
+
+\mainmatter
+
+% 24 Chapters
+\input{chapters/ch01}
+\input{chapters/ch02}
+\input{chapters/ch03}
+\input{chapters/ch04}
+\input{chapters/ch05}
+\input{chapters/ch06}
+\input{chapters/ch07}
+\input{chapters/ch08}
+\input{chapters/ch09}
+\input{chapters/ch10}
+\input{chapters/ch11}
+\input{chapters/ch12}
+\input{chapters/ch13}
+\input{chapters/ch14}
+\input{chapters/ch15}
+\input{chapters/ch16}
+\input{chapters/ch17}
+\input{chapters/ch18}
+\input{chapters/ch19}
+\input{chapters/ch20}
+\input{chapters/ch21}
+\input{chapters/ch22}
+\input{chapters/ch23}
+\input{chapters/ch24}
+
+\backmatter
+\input{chapters/appendix_traceability}
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

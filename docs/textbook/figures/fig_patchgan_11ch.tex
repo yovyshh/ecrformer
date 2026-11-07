@@ -1,0 +1,45 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    font=\footnotesize\sffamily,
+    chan/.style={draw=black!75, thick, rounded corners=3pt, minimum width=3.8cm, minimum height=0.6cm, align=center},
+    layer/.style={draw=purple!80!black, thick, fill=purple!12, rounded corners=4pt, minimum width=4.4cm, minimum height=0.8cm, align=center},
+    arr/.style={draw=black!85, thick, -Stealth}
+]
+
+% Inputs
+\node[chan, fill=blue!15] (c1) at (0, 4.2) {Base Optical: $3.0 \times \mathbf{Y}$ ($4$ ch)};
+\node[chan, fill=red!15] (c2) at (0, 3.4) {High-Pass: $10.0 \times (\mathbf{Y} - \text{AvgPool}_{5\times 5}(\mathbf{Y}))$ ($4$ ch)};
+\node[chan, fill=cyan!15] (c3) at (0, 2.6) {Sentinel-1 SAR Condition: $\mathbf{X}_{S1}$ ($2$ ch)};
+\node[chan, fill=orange!15] (c4) at (0, 1.8) {Soft Cloud Mask: $\mathbf{M}$ ($1$ ch)};
+
+% Concat node
+\node[draw=black, thick, fill=gray!20, rounded corners=4pt, align=center, minimum width=4.2cm, minimum height=0.8cm] (cat) at (0, 0.6) {\textbf{11-Channel Stacked Tensor}\\\scriptsize $[B, 11, 128, 128]$};
+
+\draw[arr] (c1) -- (cat);
+\draw[arr] (c2) -- (cat);
+\draw[arr] (c3) -- (cat);
+\draw[arr] (c4) -- (cat);
+
+% Discriminator layers
+\node[layer] (l1) at (6.0, 3.8) {\texttt{SNConv2d(11, 64, k=4, s=2)}\\\scriptsize $[B, 64, 64, 64]$ + LeakyReLU($0.2$)};
+\node[layer] (l2) at (6.0, 2.6) {\texttt{SNConv2d(64, 128, k=4, s=2)}\\\scriptsize $[B, 128, 32, 32]$ + LeakyReLU($0.2$)};
+\node[layer] (l3) at (6.0, 1.4) {\texttt{SNConv2d(128, 256, k=4, s=2)}\\\scriptsize $[B, 256, 16, 16]$ + LeakyReLU($0.2$)};
+\node[layer] (l4) at (6.0, 0.2) {\texttt{SNConv2d(256, 512, k=4, s=1)}\\\scriptsize $[B, 512, 16, 16]$ + LeakyReLU($0.2$)};
+\node[layer, fill=green!15] (l5) at (6.0, -1.0) {\texttt{SNConv2d(512, 1, k=4, s=1)}\\\scriptsize Output Logits: $[B, 1, 16, 16]$};
+
+\draw[arr] (cat.east) -| (3.5, 3.8) -- (l1.west);
+\draw[arr] (l1) -- (l2);
+\draw[arr] (l2) -- (l3);
+\draw[arr] (l3) -- (l4);
+\draw[arr] (l4) -- (l5);
+
+% Patch Weighting
+\node[draw=orange!80!black, thick, fill=orange!12, rounded corners=4pt, align=center, minimum width=4.4cm, minimum height=1.0cm] (wloss) at (6.0, -2.4) {\textbf{Mask-Weighted Hinge Loss}\\$w_{\text{patch}} = 0.25 + 0.75 \times \text{AvgPool}_{8\times 8}(\mathbf{M})$\\$\mathcal{L}_D = \text{mean}(w_{\text{patch}} \cdot \text{ReLU}(1 \pm D(\cdot)))$};
+
+\draw[arr] (l5) -- (wloss);
+
+\end{tikzpicture}
+\caption{Architecture of the 11-channel High-Pass Conditioned PatchGAN Discriminator (\texttt{losses/patchgan\_loss.py}, lines 15--75). The discriminator receives optical imagery (scaled by $3.0$), high-pass residual detail (scaled by $10.0$), SAR conditions, and the cloud mask. Every convolution uses Spectral Normalization to prevent mode collapse.}
+\label{fig:patchgan_11ch}
+\end{figure}

@@ -1,0 +1,86 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    font=\scriptsize\sffamily,
+    blk/.style={draw=black!75, thick, rounded corners=3pt, minimum width=2.6cm, minimum height=0.85cm, align=center},
+    enc/.style={blk, fill=blue!12},
+    dec/.style={blk, fill=orange!15},
+    neck/.style={blk, fill=purple!18},
+    aux/.style={blk, fill=teal!15, minimum width=2.2cm, minimum height=0.6cm},
+    skip/.style={dashed, draw=gray!70, thick, -Stealth},
+    arr/.style={draw=black!80, thick, -Stealth}
+]
+
+% Input & Stem
+\node[draw=black, thick, fill=gray!15, rounded corners=3pt, align=center] (inp) at (0, 7.2) {\textbf{Input Tensor}\\[1pt]$[B, 7, 128, 128]$};
+\node[draw=cyan!70!black, thick, fill=cyan!15, rounded corners=3pt, align=center] (stem) at (0, 6.0) {\textbf{Decoupled Stem}\\[1pt]SAR $2\to 16$ $\oplus$ Opt $5\to 16$\\[1pt]$[B, 32, 128, 128]$};
+\draw[arr] (inp) -- (stem);
+
+% Encoder Stages
+\node[enc] (enc0) at (0, 4.6) {\textbf{Encoder Stage 0}\\$2\times$ ECRformerBlock\\$+$ CBAM ($C=32, 128\times 128$)};
+\node[aux] (dp0) at (-3.2, 4.6) {\texttt{down\_proj[0]}\\$\to [B, 4, 128, 128]$};
+\draw[arr] (enc0) -- (dp0);
+
+\node[draw=blue!80, thick, fill=blue!5, rounded corners=2pt, align=center] (down0) at (0, 3.4) {\scriptsize PixelUnshuffle(2) $\to [B, 64, 64, 64]$};
+\draw[arr] (stem) -- (enc0);
+\draw[arr] (enc0) -- (down0);
+
+\node[enc] (enc1) at (0, 2.2) {\textbf{Encoder Stage 1}\\$2\times$ ECRformerBlock\\$+$ CBAM ($C=64, 64\times 64$)};
+\node[aux] (dp1) at (-3.2, 2.2) {\texttt{down\_proj[1]}\\$\to [B, 4, 64, 64]$};
+\draw[arr] (enc1) -- (dp1);
+
+\node[draw=blue!80, thick, fill=blue!5, rounded corners=2pt, align=center] (down1) at (0, 1.0) {\scriptsize PixelUnshuffle(2) $\to [B, 128, 32, 32]$};
+\draw[arr] (down0) -- (enc1);
+\draw[arr] (enc1) -- (down1);
+
+\node[enc] (enc2) at (0, -0.2) {\textbf{Encoder Stage 2}\\$1\times$ ECRformerBlock\\$+$ CBAM ($C=128, 32\times 32$)};
+\node[aux] (dp2) at (-3.2, -0.2) {\texttt{down\_proj[2]}\\$\to [B, 4, 32, 32]$};
+\draw[arr] (enc2) -- (dp2);
+
+\node[draw=blue!80, thick, fill=blue!5, rounded corners=2pt, align=center] (down2) at (0, -1.4) {\scriptsize PixelUnshuffle(2) $\to [B, 256, 16, 16]$};
+\draw[arr] (enc2) -- (down2);
+
+% Bottleneck
+\node[neck] (neck) at (4.0, -1.4) {\textbf{Restormer Bottleneck}\\$1\times$ TransposedAttn ($C=256$)\\$+ 1\times$ GatedFFN ($16\times 16$)};
+\draw[arr] (down2) -- (neck);
+
+% Decoder Stages
+\node[draw=orange!80, thick, fill=orange!5, rounded corners=2pt, align=center] (up0) at (8.0, -0.2) {\scriptsize PixelShuffle(2) $\to [B, 128, 32, 32]$};
+\node[dec] (dec0) at (8.0, 1.0) {\textbf{Decoder Stage 0}\\$1\times$ ECRformerBlock\\$+$ CBAM ($C=128, 32\times 32$)};
+\node[aux] (up0_aux) at (11.2, 1.0) {\texttt{up\_proj[0]}\\$\to [B, 4, 32, 32]$};
+\draw[arr] (dec0) -- (up0_aux);
+
+\draw[arr] (neck) -| (up0);
+\draw[arr] (up0) -- (dec0);
+
+\node[draw=orange!80, thick, fill=orange!5, rounded corners=2pt, align=center] (up1) at (8.0, 2.2) {\scriptsize PixelShuffle(2) $\to [B, 64, 64, 64]$};
+\node[dec] (dec1) at (8.0, 3.4) {\textbf{Decoder Stage 1}\\$2\times$ ECRformerBlock\\$+$ CBAM ($C=64, 64\times 64$)};
+\node[aux] (up1_aux) at (11.2, 3.4) {\texttt{up\_proj[1]}\\$\to [B, 4, 64, 64]$};
+\draw[arr] (dec1) -- (up1_aux);
+\draw[arr] (dec0) -- (up1);
+\draw[arr] (up1) -- (dec1);
+
+\node[draw=orange!80, thick, fill=orange!5, rounded corners=2pt, align=center] (up2) at (8.0, 4.6) {\scriptsize PixelShuffle(2) $\to [B, 32, 128, 128]$};
+\node[dec] (dec2) at (8.0, 5.8) {\textbf{Decoder Stage 2}\\Identity Fuser ($C=64$)\\$2\times$ ECRformerBlock ($128\times 128$)};
+\node[aux] (up2_aux) at (11.2, 5.8) {\texttt{up\_proj[2]}\\$\to [B, 4, 128, 128]$};
+\draw[arr] (dec2) -- (up2_aux);
+\draw[arr] (dec1) -- (up2);
+\draw[arr] (up2) -- (dec2);
+
+% Skip connections
+\draw[skip] (enc2.east) -- (up0.west) node[midway, above, font=\tiny] {skip 3 ($128$ ch)};
+\draw[skip] (enc1.east) -- (up1.west) node[midway, above, font=\tiny] {skip 2 ($64$ ch)};
+\draw[skip] (enc0.east) -- (up2.west) node[midway, above, font=\tiny] {skip 1 ($32$ ch)};
+
+% Final Head & Blend
+\node[draw=purple!80!black, thick, fill=purple!10, rounded corners=3pt, align=center] (fhead) at (8.0, 7.2) {\textbf{Final Conv Head}\\$\text{Conv}_{64\to 4}(k=3)$ with Mean Prior\\$\mathbf{P}_{\text{dir}} \in \mathbb{R}^{B \times 4 \times 128 \times 128}$};
+\node[draw=red!80!black, thick, fill=red!10, rounded corners=3pt, align=center] (blend) at (4.0, 7.2) {\textbf{Soft Mask Blend Gate}\\$\hat{\mathbf{Y}} = (1-\mathbf{M})\odot \mathbf{X}_{S2} + \mathbf{M}\odot \mathbf{P}_{\text{dir}}$\\Output: $[B, 4, 128, 128]$};
+
+\draw[arr] (dec2) -- (fhead);
+\draw[arr] (fhead) -- (blend);
+\draw[skip] (inp) -- (blend);
+
+\end{tikzpicture}
+\caption{Verified complete architecture of \texttt{ECRformerAdaptedModel}. Exact spatial resolutions and channel counts at each encoder and decoder level are annotated. The auxiliary projection heads (\texttt{down\_proj[0..2]} and \texttt{up\_proj[0..2]}) provide multi-scale supervision during training.}
+\label{fig:encoder_decoder}
+\end{figure}

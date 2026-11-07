@@ -213,7 +213,7 @@ def main():
     parser.add_argument(
         "--init_from_ema",
         type=str,
-        default=r"C:\Users\Windows 11 Pro\Videos\Projects\ECRformer\checkpoints\ecrformer_light_128_50ep\best_model.pth",
+        default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "checkpoints", "ecrformer_baseline", "best_model.pth"),
     )
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()

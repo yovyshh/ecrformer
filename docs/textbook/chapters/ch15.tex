@@ -1,0 +1,91 @@
+\chapter{Training Loop and Experiment Configuration}
+\label{chap:ch15}
+
+\section{The Blueprint of a Production Training Pipeline}
+The training script orchestrates data streaming, hardware acceleration, forward inference, loss calculation, backward optimization, metric tracking, and model checkpointing.
+
+In our repository, the training scripts evolved across four distinct stages:
+\begin{enumerate}
+    \item \texttt{train\_ecrformer.py}: Stage 1 Baseline (SDFL multi-scale $L_1$ and SSIM only).
+    \item \texttt{train\_ecrformer\_v2.py}: Stage 2 Spectral Texture (Shift-invariant FFT amplitude matching).
+    \item \texttt{train\_ecrformer\_v3.py}: Stage 3 Structural \& Perceptual (VGG perceptual loss, signed gradients, local std matching, opaque cloud cutout, $2\times$ SAR learning rate).
+    \item \texttt{train\_ecrformer\_v4\_gan.py}: Stage 4 High-Pass Conditioned PatchGAN (11-channel discriminator, mask-weighted hinge loss, scale-decoupled $L_1$).
+\end{enumerate}
+
+\section{DataLoader Engineering: Maximizing GPU Throughput}
+Loading satellite imagery from physical NVMe drives can easily become a severe bottleneck that starves the GPU of data. In our scripts, \texttt{DataLoader} configuration is optimized as follows:
+\begin{lstlisting}[language=Python]
+train_loader = DataLoader(
+    train_dataset,
+    batch_size=16,
+    shuffle=True,             # Essential: breaks mini-batch correlation
+    num_workers=4,            # Parallel background data-fetching processes
+    pin_memory=True,          # Allocates page-locked host memory for fast CUDA DMA transfers
+    drop_last=True,           # Prevents irregular batch sizes at epoch boundaries
+    persistent_workers=True   # Keeps worker processes alive between epochs
+)
+\end{lstlisting}
+
+\section{Mixed Precision Training with Automatic Mixed Precision (AMP)}
+Modern NVIDIA GPUs (including our host's RTX 5070 Blackwell architecture) feature Tensor Cores optimized for 16-bit half-precision floating-point operations (\texttt{float16} and \texttt{bfloat16}).
+
+Running training in pure 32-bit floats (\texttt{float32}) consumes twice as much memory and slows down matrix multiplications. Using PyTorch's \texttt{torch.amp.autocast}:
+\begin{lstlisting}[language=Python]
+scaler = torch.amp.GradScaler('cuda')
+
+# Inside training loop:
+with torch.amp.autocast('cuda'):
+    pred = model(x_input)
+    loss = criterion(pred, target)
+
+# Backward pass with loss scaling:
+scaler.scale(loss).backward()
+scaler.unscale_(optimizer)
+torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+scaler.step(optimizer)
+scaler.update()
+\end{lstlisting}
+\begin{itemize}
+    \item \textbf{Why GradScaler is necessary:} In 16-bit float, numbers smaller than $2^{-24} \approx 6 \times 10^{-8}$ underflow to zero. \texttt{GradScaler} multiplies the loss by a large factor (e.g., $2^{16} = 65{,}536$) before backpropagation, pushing tiny gradients into the representable range of 16-bit floats, and then divides them back down before the optimizer step!
+\end{itemize}
+
+\section{The Role of Gradient Norm Clipping}
+In deep multimodal architectures with cross-attention, occasional anomalous patches with severe sensor noise or missing SAR data can produce sharp gradient spikes. If an unchecked gradient vector of magnitude $100.0$ enters AdamW, it takes a massive leap in parameter space, corrupting previously learned weights.
+\begin{equation}
+\mathbf{g} \leftarrow \mathbf{g} \cdot \min\left(1.0, \frac{\text{max\_norm}}{\|\mathbf{g}\|_2}\right)
+\end{equation}
+Setting \texttt{max\_norm=1.0} rescales any gradient with $L_2$ norm exceeding $1.0$ down to unit length while perfectly preserving its angular direction!
+
+\section{Exponential Moving Average (EMA) of Weights}
+During stochastic gradient descent, individual mini-batch gradients fluctuate noisily. \textbf{EMA} maintains a smoothed, temporal running average of the generator parameters $\theta$:
+\begin{equation}
+\theta_{\text{EMA}} \leftarrow \beta \cdot \theta_{\text{EMA}} + (1 - \beta) \cdot \theta
+\end{equation}
+In our scripts, $\beta = 0.999$. This means that $\theta_{\text{EMA}}$ acts as a low-pass filter over the last $\frac{1}{1 - 0.999} = 1{,}000$ optimization steps!
+\begin{itemize}
+    \item The model running during training explores parameter space with standard weights $\theta$.
+    \item For validation evaluation and checkpoint saving, the model loads $\theta_{\text{EMA}}$, which consistently achieves $0.3\text{--}0.8\text{ dB}$ higher PSNR and cleaner visual textures.
+\end{itemize}
+
+\section{Summary of Chapter 15}
+\begin{enumerate}
+    \item DataLoader optimizations (\texttt{num\_workers=4}, \texttt{pin\_memory=True}) keep high-performance GPUs fully saturated.
+    \item Automatic Mixed Precision (AMP) doubles computational throughput while \texttt{GradScaler} prevents numerical underflow in 16-bit gradients.
+    \item Gradient norm clipping (\texttt{max\_norm=1.0}) prevents anomalous batch spikes from corrupting network weights.
+    \item Exponential Moving Average ($\beta=0.999$) eliminates high-frequency optimization noise, producing superior validation checkpoints.
+    \item Checkpoints archive the generator, EMA shadow weights, discriminator, and optimizer states together.
+\end{enumerate}
+
+\section{Practice Exercises}
+\begin{enumerate}
+    \item Why does \texttt{DataLoader(..., shuffle=True)} prevent a neural network from learning spurious temporal sequence correlations?
+    \item If a gradient vector has an $L_2$ norm of $\|\mathbf{g}\|_2 = 4.0$ and we apply \texttt{clip\_grad\_norm\_(..., max\_norm=1.0)}, what will be its norm after clipping?
+    \item If an EMA decay factor is $\beta = 0.999$, approximately how many previous training steps contribute significantly to the running average?
+\end{enumerate}
+
+\subsection*{Solutions}
+\begin{enumerate}
+    \item If patches were presented in a fixed geographical or temporal order, the optimizer would update weights toward the idiosyncrasies of one specific climate region during the morning and another in the afternoon, causing catastrophic forgetting. Shuffling ensures each mini-batch represents an independent and identically distributed (i.i.d.) sample of global biomes.
+    \item Its norm will be exactly $1.0$. The gradient vector is scaled by $\frac{1.0}{4.0} = 0.25$, reducing its magnitude from $4.0$ to $1.0$ while preserving its direction.
+    \item The effective time window of an exponential moving average is $\frac{1}{1 - \beta} = \frac{1}{1 - 0.999} = 1{,}000$ mini-batch steps.
+\end{enumerate}

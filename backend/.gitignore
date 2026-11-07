@@ -36,6 +36,8 @@ checkpoints/*
 !checkpoints/ecrformer_sweetspot_best/**
 !checkpoints/ecrformer_baseline/
 !checkpoints/ecrformer_baseline/**
+!checkpoints/ecrformer_v3_structure/
+!checkpoints/ecrformer_v3_structure/**
 
 # Outputs: Ignore scratch outputs except the metrics logs
 outputs/*

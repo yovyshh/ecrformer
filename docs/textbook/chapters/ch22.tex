@@ -1,0 +1,149 @@
+\chapter{A Complete Worked Example}
+\label{chap:ch22}
+
+\section{Synthesizing the Pipeline with Concrete Numbers}
+Throughout this textbook, we have examined remote sensing physics, tensor dimensions, attention mathematics, and loss formulations in isolation.
+
+In this chapter, we assemble every concept into a single, complete \textbf{end-to-end numerical walkthrough}. We will take a tiny $2 \times 2$ pixel image, pass it through a miniature multimodal network, compute the composite loss, derive exact backpropagation gradients using the Chain Rule, and execute a parameter update.
+
+\section{The Micro-World Setup}
+To keep the manual arithmetic fully transparent while preserving multimodal properties, we define:
+\begin{itemize}
+    \item Spatial grid: $H = 2, W = 2$ ($2 \times 2$ pixels).
+    \item Modalities:
+    \begin{itemize}
+        \item Sentinel-1 SAR VV ($\mathbf{X}_{\text{SAR}} \in \mathbb{R}^{1 \times 2 \times 2}$).
+        \item Sentinel-2 Optical Red band ($\mathbf{X}_{\text{opt}} \in \mathbb{R}^{1 \times 2 \times 2}$).
+        \item Soft Cloud Mask ($\mathbf{M} \in \mathbb{R}^{1 \times 2 \times 2}$).
+    \end{itemize}
+    \item Target ground truth: $\mathbf{Y}^* \in \mathbb{R}^{1 \times 2 \times 2}$.
+\end{itemize}
+
+\subsection{Input Data Values}
+\[
+\mathbf{X}_{\text{SAR}} = \begin{bmatrix} 0.20 & 0.80 \\ 0.20 & 0.80 \end{bmatrix} \quad (\text{left col: calm water; right col: urban concrete})
+\]
+\[
+\mathbf{X}_{\text{opt}} = \begin{bmatrix} 0.10 & 0.95 \\ 0.10 & 0.95 \end{bmatrix} \quad (\text{left col: clear water; right col: obscured by cloud!})
+\]
+\[
+\mathbf{M} = \begin{bmatrix} 0.00 & 1.00 \\ 0.00 & 1.00 \end{bmatrix} \quad (\text{left col: clear sky; right col: thick cloud})
+\]
+\[
+\mathbf{Y}^* = \begin{bmatrix} 0.10 & 0.25 \\ 0.10 & 0.25 \end{bmatrix} \quad (\text{true ground truth: water on left, urban asphalt on right})
+\]
+
+\section{The Miniature Multimodal Architecture}
+We construct a minimal model with two learnable parameters:
+\begin{enumerate}
+    \item A radar stem weight $w_{\text{sar}}$ and an optical stem weight $w_{\text{opt}}$:
+    \begin{equation}
+    \mathbf{P}_{\text{dir}} = w_{\text{sar}} \mathbf{X}_{\text{SAR}} + w_{\text{opt}} \mathbf{X}_{\text{opt}}
+    \end{equation}
+    \item Initial parameter values: $w_{\text{sar}} = 0.50$, $w_{\text{opt}} = 0.50$.
+    \item Blended output:
+    \begin{equation}
+    \hat{\mathbf{Y}} = (1 - \mathbf{M}) \odot \mathbf{X}_{\text{opt}} + \mathbf{M} \odot \mathbf{P}_{\text{dir}}
+    \end{equation}
+    \item Objective: $L_1$ reconstruction loss: $\mathcal{L} = \frac{1}{4} \sum_{i=1}^4 |\hat{\mathbf{Y}}_i - \mathbf{Y}^*_i|$.
+    \item Learning rate: $\eta = 0.10$.
+\end{enumerate}
+
+\section{Step 1: The Forward Pass}
+First, compute the network's direct prediction $\mathbf{P}_{\text{dir}}$:
+\begin{align*}
+\mathbf{P}_{\text{dir}}(0, 0) &= (0.50)(0.20) + (0.50)(0.10) = 0.10 + 0.05 = \mathbf{0.15} \\
+\mathbf{P}_{\text{dir}}(0, 1) &= (0.50)(0.80) + (0.50)(0.95) = 0.40 + 0.475 = \mathbf{0.875} \\
+\mathbf{P}_{\text{dir}}(1, 0) &= (0.50)(0.20) + (0.50)(0.10) = \mathbf{0.15} \\
+\mathbf{P}_{\text{dir}}(1, 1) &= (0.50)(0.80) + (0.50)(0.95) = \mathbf{0.875}
+\end{align*}
+\[
+\mathbf{P}_{\text{dir}} = \begin{bmatrix} 0.150 & 0.875 \\ 0.150 & 0.875 \end{bmatrix}
+\]
+
+Next, apply the soft-mask blend gate $\hat{\mathbf{Y}} = (1 - \mathbf{M})\mathbf{X}_{\text{opt}} + \mathbf{M}\mathbf{P}_{\text{dir}}$:
+\begin{align*}
+\hat{\mathbf{Y}}(0, 0) &= (1 - 0.0)(0.10) + (0.0)(0.15) = \mathbf{0.100} \quad (\text{exact clear ground truth preserved!}) \\
+\hat{\mathbf{Y}}(0, 1) &= (1 - 1.0)(0.95) + (1.0)(0.875) = \mathbf{0.875} \quad (\text{cloudy pixel replaced by prediction}) \\
+\hat{\mathbf{Y}}(1, 0) &= \mathbf{0.100} \\
+\hat{\mathbf{Y}}(1, 1) &= \mathbf{0.875}
+\end{align*}
+\[
+\hat{\mathbf{Y}} = \begin{bmatrix} 0.100 & 0.875 \\ 0.100 & 0.875 \end{bmatrix}
+\]
+
+\section{Step 2: Loss Evaluation}
+Compare blended prediction $\hat{\mathbf{Y}}$ with ground-truth $\mathbf{Y}^*$:
+\[
+\hat{\mathbf{Y}} - \mathbf{Y}^* = \begin{bmatrix} 0.100 - 0.100 & 0.875 - 0.250 \\ 0.100 - 0.100 & 0.875 - 0.250 \end{bmatrix} = \begin{bmatrix} 0.000 & +0.625 \\ 0.000 & +0.625 \end{bmatrix}
+\]
+Evaluating the scalar $L_1$ loss:
+\[
+\mathcal{L} = \frac{1}{4} \big( |0.000| + |0.625| + |0.000| + |0.625| \big) = \frac{1.250}{4} = \mathbf{0.3125}
+\]
+
+\section{Step 3: The Backward Pass (Autograd Derivatives)}
+We evaluate the gradient of $\mathcal{L}$ with respect to the blended output pixels:
+\[
+\frac{\partial \mathcal{L}}{\partial \hat{\mathbf{Y}}} = \frac{1}{4} \text{sign}(\hat{\mathbf{Y}} - \mathbf{Y}^*) = \begin{bmatrix} 0.000 & +0.250 \\ 0.000 & +0.250 \end{bmatrix}
+\]
+Now, propagate backward through the soft-mask gate:
+\[
+\frac{\partial \mathcal{L}}{\partial \mathbf{P}_{\text{dir}}} = \frac{\partial \mathcal{L}}{\partial \hat{\mathbf{Y}}} \odot \mathbf{M} = \begin{bmatrix} (0.000)(0.0) & (0.250)(1.0) \\ (0.000)(0.0) & (0.250)(1.0) \end{bmatrix} = \begin{bmatrix} 0.000 & +0.250 \\ 0.000 & +0.250 \end{bmatrix}
+\]
+Notice that the left column has zero gradient because $\mathbf{M} = 0$!
+
+Now, propagate backward into the weights:
+\begin{align*}
+\frac{\partial \mathcal{L}}{\partial w_{\text{sar}}} &= \sum_{i,j} \frac{\partial \mathcal{L}}{\partial \mathbf{P}_{\text{dir}}(i,j)} \cdot \mathbf{X}_{\text{SAR}}(i,j) \\
+&= (0.000)(0.20) + (0.250)(0.80) + (0.000)(0.20) + (0.250)(0.80) \\
+&= 0.000 + 0.200 + 0.000 + 0.200 = \mathbf{+0.400}
+\end{align*}
+\begin{align*}
+\frac{\partial \mathcal{L}}{\partial w_{\text{opt}}} &= \sum_{i,j} \frac{\partial \mathcal{L}}{\partial \mathbf{P}_{\text{dir}}(i,j)} \cdot \mathbf{X}_{\text{opt}}(i,j) \\
+&= (0.000)(0.10) + (0.250)(0.95) + (0.000)(0.10) + (0.250)(0.95) \\
+&= 0.000 + 0.2375 + 0.000 + 0.2375 = \mathbf{+0.475}
+\end{align*}
+
+\section{Step 4: The Optimizer Parameter Update}
+Both gradients are positive, meaning the predictions were too bright and the weights must decrease:
+\[
+w_{\text{sar, new}} = w_{\text{sar}} - \eta \frac{\partial \mathcal{L}}{\partial w_{\text{sar}}} = 0.500 - (0.10)(+0.400) = 0.500 - 0.040 = \mathbf{0.460}
+\]
+\[
+w_{\text{opt, new}} = w_{\text{opt}} - \eta \frac{\partial \mathcal{L}}{\partial w_{\text{opt}}} = 0.500 - (0.10)(+0.475) = 0.500 - 0.0475 = \mathbf{0.4525}
+\]
+
+\section{Step 5: Verifying the Update on Step 2}
+Let us test the updated weights on a new forward pass:
+\[
+\mathbf{P}_{\text{dir, new}}(0, 1) = (0.460)(0.80) + (0.4525)(0.95) = 0.368 + 0.4299 = \mathbf{0.7979}
+\]
+The error on the cloudy pixel dropped from $|0.875 - 0.25| = 0.625$ down to $|0.7979 - 0.25| = \mathbf{0.5479}$!
+The new loss is:
+\[
+\mathcal{L}_{\text{new}} = \frac{1}{4}(0 + 0.5479 + 0 + 0.5479) = \mathbf{0.2739} < 0.3125
+\]
+The system learned!
+
+\section{Summary of Chapter 22}
+\begin{enumerate}
+    \item Concrete matrix arithmetic traces the exact pathway from raw numbers through the blend gate to backpropagation.
+    \item The mask multiplication $\frac{\partial \mathcal{L}}{\partial \mathbf{P}_{\text{dir}}} = \frac{\partial \mathcal{L}}{\partial \hat{\mathbf{Y}}} \odot \mathbf{M}$ zeroes out upstream gradients on clear pixels.
+    \item Gradients accumulate the sensitivity of every cloudy pixel to each internal weight.
+    \item Gradient descent strictly reduces reconstruction error on the subsequent step.
+\end{enumerate}
+
+\section{Practice Exercises}
+\begin{enumerate}
+    \item In Step 3, why was the gradient with respect to the clear pixel $(0, 0)$ equal to zero?
+    \item If we had used Mean Squared Error ($\mathcal{L} = \frac{1}{2}(\hat{y} - y^*)^2$) instead of $L_1$, what would have been the derivative $\frac{\partial \mathcal{L}}{\partial \hat{y}(0, 1)}$?
+    \item If the radar weight received a $2\times$ differential learning rate ($\eta_{\text{sar}} = 0.20$), calculate the updated $w_{\text{sar, new}}$.
+\end{enumerate}
+
+\subsection*{Solutions}
+\begin{enumerate}
+    \item At pixel $(0, 0)$, the mask value was $\mathbf{M} = 0.0$. Multiplying by $\mathbf{M}$ zeroes the gradient flowing to $\mathbf{P}_{\text{dir}}$. Because the original optical pixel already matched the target ($\hat{y} = y^* = 0.10$), the reconstruction error was also zero.
+    \item For MSE: $\frac{\partial \mathcal{L}}{\partial \hat{y}} = (\hat{y} - y^*) = (0.875 - 0.250) = \mathbf{+0.625}$.
+    \item $w_{\text{sar, new}} = 0.500 - (0.20)(+0.400) = 0.500 - 0.080 = \mathbf{0.420}$.
+\end{enumerate}

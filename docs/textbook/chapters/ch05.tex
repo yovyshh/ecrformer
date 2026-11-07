@@ -1,0 +1,127 @@
+\chapter{Convolutional Neural Networks and Image Features}
+\label{chap:ch05}
+
+\section{Why Fully Connected Networks Fail on Satellite Imagery}
+If we flattened a $128 \times 128$ optical satellite patch with 4 channels into a 1D vector, it would contain $4 \times 128 \times 128 = 65{,}536$ numbers. Connecting this vector to a single hidden layer of 1,000 neurons using standard linear layers would require:
+\[
+65{,}536 \times 1{,}000 \approx 65.5\text{ million weights!}
+\]
+Beyond consuming catastrophic amounts of memory, fully connected layers destroy the \textbf{2D spatial geometry} of the image: a pixel at coordinate $(0, 0)$ is treated as having no special geometric proximity to $(0, 1)$. Furthermore, if an agricultural parcel or cloud boundary shifts three pixels to the right, a fully connected network fails to recognize it.
+
+\section{The Convolution Operation}
+Convolutional Neural Networks (CNNs) solve this problem through two core inductive biases:
+\begin{enumerate}
+    \item \textbf{Local Receptive Fields:} Each neuron connects only to a small spatial neighborhood (e.g., $3 \times 3$ or $7 \times 7$ pixels).
+    \item \textbf{Weight Sharing (Translation Equivariance):} The same small matrix of weights (a \textbf{filter} or \textbf{kernel}) is slid (convolved) across the entire image grid. An edge detector learned in the top-left corner automatically detects edges in the bottom-right corner!
+\end{enumerate}
+
+\begin{mathbox}{A Complete Numerical $2\text{D}$ Convolution Example}
+Consider a $4 \times 4$ single-channel input matrix $\mathbf{X}$ and a $3 \times 3$ horizontal Sobel edge-detection kernel $\mathbf{K}$ (with no padding and stride $s=1$):
+\[
+\mathbf{X} = \begin{bmatrix}
+1 & 1 & 1 & 1 \\
+1 & 1 & 1 & 1 \\
+0 & 0 & 0 & 0 \\
+0 & 0 & 0 & 0
+\end{bmatrix}, \quad
+\mathbf{K} = \begin{bmatrix}
+-1 & -2 & -1 \\
+ 0 &  0 &  0 \\
+ 1 &  2 &  1
+\end{bmatrix}
+\]
+Notice the sharp horizontal edge between row 2 and row 3 in $\mathbf{X}$.
+The output feature map $\mathbf{Y}$ has spatial dimensions:
+\[
+H_{\text{out}} = \frac{H - K + 2P}{S} + 1 = \frac{4 - 3 + 0}{1} + 1 = 2
+\]
+Computing the top-left output element $\mathbf{Y}_{0,0}$ (overlapping rows 0--2, cols 0--2 of $\mathbf{X}$):
+\begin{align*}
+\mathbf{Y}_{0,0} &= (1)(-1) + (1)(-2) + (1)(-1) \\
+                 &\quad + (1)(0) + (1)(0) + (1)(0) \\
+                 &\quad + (0)(1) + (0)(2) + (0)(1) \\
+                 &= -1 - 2 - 1 + 0 + 0 = \mathbf{-4}
+\end{align*}
+Computing the bottom-left output element $\mathbf{Y}_{1,0}$ (overlapping rows 1--3, cols 0--2 of $\mathbf{X}$):
+\begin{align*}
+\mathbf{Y}_{1,0} &= (1)(-1) + (1)(-2) + (1)(-1) \\
+                 &\quad + (0)(0) + (0)(0) + (0)(0) \\
+                 &\quad + (0)(1) + (0)(2) + (0)(1) \\
+                 &= -4
+\end{align*}
+The kernel responds with maximum magnitude ($-4$) precisely along the boundary between bright and dark regions, extracting an explicit edge feature map!
+\end{mathbox}
+
+\section{Padding and the Importance of Reflection Padding}
+When convolving with a $3 \times 3$ kernel, the outer border pixels have fewer neighbors. Standard zero-padding appends zeros around the perimeter. However, in satellite imagery:
+\begin{itemize}
+    \item Appending zeros creates artificial black cliffs at the image boundaries.
+    \item In cloud reconstruction, zero-padding causes dark framing artifacts along the perimeter of the reconstructed patch.
+\end{itemize}
+To eliminate boundary distortion, our implementation uses \textbf{reflection padding}:
+\begin{equation}
+[\dots, x_2, x_1, x_0 \mid x_0, x_1, x_2, \dots]
+\end{equation}
+The boundary pixels are mirrored outward, ensuring continuity for gradient filters and transformer attention windows.
+
+\begin{codebox}{Reflection Padding in \texttt{models/ecrformer\_model.py}}
+Notice how the decoupled input stem and final reconstruction head in our codebase explicitly enforce reflection padding:
+\begin{lstlisting}[language=Python]
+# In DecoupledEncoder (models/ecrformer_model.py, line 363)
+self.branch_0 = nn.Conv2d(in_chans[0], features_start // 2, 
+                          kernel_size=7, padding=3, padding_mode='reflect')
+
+# In ECRformerAdaptedModel (models/ecrformer_adapted.py, line 58)
+self.final_conv = nn.Conv2d(feats[0], out_chans, 
+                            kernel_size=3, padding=1, padding_mode='reflect')
+\end{lstlisting}
+\end{codebox}
+
+\section{Modern Upsampling: PixelShuffle vs. Transposed Convolution}
+Early generative models used \texttt{nn.ConvTranspose2d} (deconvolution) to upsample feature maps. However, transposed convolutions with stride 2 suffer from uneven kernel overlaps, producing notorious \textbf{checkerboard artifacts} across the image.
+
+ECRformer-Light eliminates checkerboard artifacts by utilizing \textbf{PixelShuffle} (sub-pixel convolution, Shi et al.~\cite{shi2016pixelshuffle}) and its inverse, \textbf{PixelUnshuffle}:
+\begin{itemize}
+    \item \textbf{PixelUnshuffle ($r=2$):} Takes a tensor $[B, C, H, W]$ and rearranges non-overlapping $2 \times 2$ spatial patches into the channel dimension, producing $[B, 4C, H/2, W/2]$. It downsamples spatial resolution with \textbf{zero loss of information}!
+    \item \textbf{PixelShuffle ($r=2$):} Takes a tensor $[B, 4C, H, W]$ and rearranges 4 channel elements into a $2 \times 2$ spatial grid, producing $[B, C, 2H, 2W]$. It produces smooth, mathematically continuous upsampling.
+\end{itemize}
+
+\begin{codebox}{Downsamplers and Upsamplers in \texttt{models/ecrformer\_model.py}}
+\begin{lstlisting}[language=Python]
+# Downsampler: Conv reduces channels, PixelUnshuffle doubles resolution losslessly
+self.downsamplers.append(nn.Sequential(
+    nn.Conv2d(in_ch, out_ch // 4, kernel_size=3, padding=1),
+    nn.PixelUnshuffle(2), # Expands (out_ch // 4) * 4 -> out_ch
+    CBAM(out_ch)
+))
+
+# Upsampler: Conv expands channels by 4x, PixelShuffle upsamples 2x spatially
+self.upsamplers.append(nn.Sequential(
+    nn.Conv2d(in_ch, out_ch * 4, kernel_size=3, padding=1),
+    nn.PixelShuffle(2),  # (out_ch * 4) -> out_ch with 2x spatial height/width
+    CBAM(out_ch)
+))
+\end{lstlisting}
+\end{codebox}
+
+\section{Summary of Chapter 5}
+\begin{enumerate}
+    \item CNNs exploit local spatial coherence and translation equivariance, making them vastly more parameter-efficient than dense linear layers.
+    \item Convolving learnable kernels over feature maps extracts low-level edges, mid-level textures, and high-level semantics.
+    \item Reflection padding mirrors edge pixels, eliminating the black-border artifacts caused by standard zero-padding.
+    \item PixelUnshuffle and PixelShuffle provide lossless spatial downsampling and artifact-free upsampling, completely bypassing checkerboard artifacts.
+\end{enumerate}
+
+\section{Practice Exercises}
+\begin{enumerate}
+    \item Given an input of shape $[B, 32, 64, 64]$, what is the exact output shape after applying \texttt{nn.PixelUnshuffle(2)}?
+    \item Why does zero-padding create undesirable artifacts in satellite image reconstruction?
+    \item How does a $7 \times 7$ convolution in the input stem differ in receptive field compared to a standard $3 \times 3$ convolution?
+\end{enumerate}
+
+\subsection*{Solutions}
+\begin{enumerate}
+    \item Spatial dimensions are halved ($64 / 2 = 32$) and channels are multiplied by $2^2 = 4$ ($32 \times 4 = 128$). Output shape: $[B, 128, 32, 32]$.
+    \item Zero-padding fills borders with numerical zeros. In reflectance terms, $0.0$ represents absolute total absorption (pure black), creating artificial step-function gradients along the patch borders that distort optical edge features.
+    \item A $7 \times 7$ kernel directly inspects a $70\text{ m} \times 70\text{ m}$ spatial neighborhood on the ground in a single step, enabling the input stem to capture broader macroscopic geological and agricultural structures immediately. A $3 \times 3$ kernel only observes $30\text{ m} \times 30\text{ m}$.
+\end{enumerate}

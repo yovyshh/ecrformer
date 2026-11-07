@@ -1,0 +1,43 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    font=\small\sffamily,
+    band/.style={draw=black!70, thick, minimum width=3.4cm, minimum height=0.55cm, align=center, rounded corners=2pt},
+    s1band/.style={band, fill=cyan!18},
+    s2band/.style={band, fill=green!18},
+    maskband/.style={band, fill=orange!22},
+    outband/.style={band, fill=blue!15},
+    arrow/.style={-Stealth, thick, draw=black!75}
+]
+% Left column: Modalities
+\node[font=\bfseries\sffamily, align=center] at (0, 4.3) {7-Channel Stacked Input Tensor\\$\mathbf{X}_{\text{in}} \in \mathbb{R}^{B \times 7 \times 128 \times 128}$};
+
+\node[s1band] (c0) at (0, 3.3) {Ch 0: S1 SAR VV $\in [0,1]$};
+\node[s1band] (c1) at (0, 2.65) {Ch 1: S1 SAR VH $\in [0,1]$};
+\node[s2band] (c2) at (0, 1.85) {Ch 2: S2 Red (B04) $\in [0,1]$};
+\node[s2band] (c3) at (0, 1.20) {Ch 3: S2 Green (B03) $\in [0,1]$};
+\node[s2band] (c4) at (0, 0.55) {Ch 4: S2 Blue (B02) $\in [0,1]$};
+\node[s2band] (c5) at (0, -0.10) {Ch 5: S2 NIR (B08) $\in [0,1]$};
+\node[maskband] (c6) at (0, -0.90) {Ch 6: Soft Mask $\mathbf{M} \in [0,1]$};
+
+% Braces / Labels on left
+\draw[decorate, decoration={brace, amplitude=5pt, mirror}, thick, cyan!60!black] (-1.9, 3.55) -- (-1.9, 2.4) node[midway, left=6pt, align=right, font=\scriptsize\sffamily] {\textbf{Branch 0 Input}\\$\mathbf{x}_{:, 0:2}$ ($2$ ch)};
+\draw[decorate, decoration={brace, amplitude=5pt, mirror}, thick, green!50!black] (-1.9, 2.1) -- (-1.9, -1.15) node[midway, left=6pt, align=right, font=\scriptsize\sffamily] {\textbf{Branch 1 Input}\\$\mathbf{x}_{:, 2:7}$ ($5$ ch)};
+
+% Decoupled Stem
+\node[draw=cyan!70!black, fill=cyan!10, thick, rounded corners=4pt, minimum width=3.0cm, minimum height=1.1cm, align=center] (b0) at (4.5, 2.95) {\textbf{Stem Branch 0}\\\scriptsize\texttt{Conv2d(2, 16, k=7, p=3)}\\$[B, 16, 128, 128]$};
+\node[draw=green!60!black, fill=green!10, thick, rounded corners=4pt, minimum width=3.0cm, minimum height=1.3cm, align=center] (b1) at (4.5, 0.55) {\textbf{Stem Branch 1}\\\scriptsize\texttt{Conv2d(5, 16, k=7, p=3)}\\$[B, 16, 128, 128]$};
+
+\draw[arrow] (1.8, 2.95) -- (b0.west);
+\draw[arrow] (1.8, 0.55) -- (b1.west);
+
+% Concatenation & Output
+\node[draw=purple!70!black, fill=purple!12, thick, rounded corners=4pt, minimum width=3.1cm, minimum height=1.4cm, align=center] (cat) at (8.6, 1.75) {\textbf{Channel Concat}\\\scriptsize\texttt{torch.cat(..., dim=1)}\\$\mathbf{F}_0 \in \mathbb{R}^{B \times 32 \times 128 \times 128}$\\\scriptsize (To Encoder Stage 0)};
+
+\draw[arrow] (b0.east) -| (cat.north);
+\draw[arrow] (b1.east) -| (cat.south);
+
+\end{tikzpicture}
+\caption{Channel layout and modality splitting inside \texttt{ECRformerAdaptedModel.forward()} and \texttt{DecoupledEncoder.forward()}. The 7-channel input tensor is sliced along dimension $C=1$ into 2 SAR channels (indices \texttt{0:2}) and 5 optical+mask channels (indices \texttt{2:7}), projected independently into 16 feature maps each, and concatenated into 32 channels.}
+\label{fig:tensor_layout}
+\end{figure}

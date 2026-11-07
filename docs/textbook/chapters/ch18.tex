@@ -1,0 +1,86 @@
+\chapter{Understanding the Entire Codebase}
+\label{chap:ch18}
+
+\section{Repository Architecture Overview}
+The project repository is structured modularly, separating dataset streaming, model architecture, loss functions, training orchestrators, and evaluation tools:
+
+\begin{lstlisting}[language=bash]
+ECRformer/
+|-- data/
+|   `-- cache_dataset.py          # Cached dataset loader & on-the-fly norm
+|-- models/
+|   |-- ecrformer_adapted.py      # Top-level adapter with mask blending
+|   |-- ecrformer_model.py        # Core U-Net, stem, up/downsamplers
+|   `-- module.py                 # MDTA, MDWA, GDFN, CBAM, LayerScale
+|-- losses/
+|   |-- patchgan_loss.py          # 11-channel high-pass PatchGAN & scale-decoupled L1
+|   |-- cloud_structure_loss.py   # VGG perceptual, signed gradient, local std loss
+|   |-- sdfl_loss.py              # Auxiliary multi-scale supervision
+|   `-- spectral_texture_loss.py  # FFT shift-invariant spectral loss (v2 experimental)
+|-- scripts/
+|   `-- generate_paper_pipeline_figure.py  # Publication diagram generation
+|-- train_ecrformer.py            # Stage 1 baseline training script
+|-- train_ecrformer_v3.py         # Stage 3 structural loss training script
+`-- train_ecrformer_v4_gan.py     # Stage 4 sweetspot PatchGAN training script
+\end{lstlisting}
+
+\section{Master Component Traceability Table}
+Table~\ref{tab:code_traceability} provides an exhaustive mapping of every primary Python module across the repository.
+
+\begin{table}[htbp]
+\centering
+\scriptsize
+\begin{tabularx}{\textwidth}{llp{3.2cm}Xl}
+\toprule
+\textbf{Component} & \textbf{Source File} & \textbf{Class / Function} & \textbf{Core Responsibility} & \textbf{Active in SOTA?} \\
+\midrule
+Dataset Loader & \texttt{data/cache\_dataset.py} & \texttt{CachedSEN12MSCRDataset} & Loads \texttt{.npz} arrays; applies SAR dB normalization and 3-step mask softening. & Yes \\
+Top-Level Adapter & \texttt{models/ecrformer\_adapted.py} & \texttt{ECRformerAdaptedModel} & Splits 7-channel input; invokes U-Net; applies soft-mask output blend gate. & Yes \\
+Decoupled Stem & \texttt{models/ecrformer\_model.py} & \texttt{DecoupledEncoder} & Slices SAR ($2\to 16$) and S2+M ($5\to 16$) with reflection convs; concats to 32 ch. & Yes \\
+Core U-Net & \texttt{models/ecrformer\_model.py} & \texttt{ECRformerModel} & Orchestrates 4-stage encoder-decoder, skip links, and auxiliary projection heads. & Yes \\
+Transposed Attn & \texttt{models/module.py} & \texttt{TransposedAttention} & Computes global channel-wise cross-covariance attention ($C \times C$). & Yes \\
+Dilated Attn & \texttt{models/module.py} & \texttt{MultiDilateWindowAttention} & Computes multi-scale spatial attention across dilated local windows ($r \in [1..4]$). & Yes \\
+Gated Feedforward & \texttt{models/module.py} & \texttt{GatedFFN} & Depthwise spatial convolution modulated by GELU Hadamard gating. & Yes \\
+Attention Fusion & \texttt{models/module.py} & \texttt{CBAM} & Spatial and channel attention gates applied across all up/downsamplers. & Yes \\
+Mean-Prior Head & \texttt{models/ecrformer\_adapted.py} & \texttt{final\_conv} & $3\times 3$ reflection head initialized to Sentinel-2 global surface reflectance means. & Yes \\
+11-Ch PatchGAN & \texttt{losses/patchgan\_loss.py} & \texttt{ConditionalPatchGANDiscriminator} & Discriminates realism conditioned on base optical, $10\times$ high-pass, SAR, and mask. & Yes \\
+Scale-Decoupled L1 & \texttt{losses/patchgan\_loss.py} & \texttt{compute\_scale\_decoupled\_l1} & Decouples $1\times 1$, $4\times 4$, and $8\times 8$ pooled $L_1$ errors with intermediate SDFL aux. & Yes \\
+Structural Loss & \texttt{losses/cloud\_structure\_loss.py} & \texttt{CloudStructurePerceptualLoss} & Multi-scale signed gradients, VGG-16 perceptual, edge cosine correlation, local std. & Yes \\
+Auxiliary SDFL & \texttt{losses/sdfl\_loss.py} & \texttt{SDFLLoss} & Multi-scale $L_1$ + SSIM supervision on intermediate encoder/decoder projections. & Yes \\
+FFT Texture Loss & \texttt{losses/spectral\_texture\_loss.py} & \texttt{SpectralTextureLoss} & Shift-invariant 2D FFT magnitude spectrum error (Stage 2 experimental branch). & Inactive in v4 \\
+\bottomrule
+\end{tabularx}
+\caption{Master architectural traceability table across the active repository.}
+\label{tab:code_traceability}
+\end{table}
+
+\section{Developer's Diagnostic Guide: Where to Debug Specific Failures}
+When debugging anomalous behavior in multimodal satellite models:
+\begin{enumerate}
+    \item \textbf{Global Color / Radiometric Drift:} If reconstructed clear fields appear discolored, inspect \texttt{CLEAR\_CHANNEL\_MEANS} in \texttt{models/ecrformer\_adapted.py} (lines 62--66) and the optical scale factor in \texttt{data/cache\_dataset.py}.
+    \item \textbf{Seam Artifacts around Cloud Edges:} If visible border lines appear, inspect lines 84--97 in \texttt{data/cache\_dataset.py}. Verify that the Gaussian blur kernel size is 11 with $\sigma=2.0$ and that morphological dilation is functioning.
+    \item \textbf{Blurry Over-Smoothed Outputs:} Inspect \texttt{losses/cloud\_structure\_loss.py}. Verify that the local standard deviation loss weight is active ($w=0.15$) and that the high-pass residual factor in \texttt{losses/patchgan\_loss.py} is set to $10.0$.
+    \item \textbf{Adversarial Training Instability / Mode Collapse:} Inspect the discriminator in \texttt{losses/patchgan\_loss.py}. Verify that every convolutional layer is wrapped with \texttt{spectral\_norm} and that the generator adversarial weight does not exceed $w_{\text{adv}} = 0.015$.
+\end{enumerate}
+
+\section{Summary of Chapter 18}
+\begin{enumerate}
+    \item The codebase is organized into cleanly decoupled directories: \texttt{data/}, \texttt{models/}, \texttt{losses/}, and root training scripts.
+    \item Every component has an explicit, traceable responsibility verified against executable Python source files.
+    \item The master traceability table distinguishes between components active in the state-of-the-art sweetspot checkpoint versus experimental branches.
+    \item Targeted diagnostic pathways enable researchers to isolate color shifts, edge artifacts, blurriness, or training instability rapidly.
+\end{enumerate}
+
+\section{Practice Exercises}
+\begin{enumerate}
+    \item In which Python file is the soft-mask blending equation implemented?
+    \item Which module must you inspect if you want to modify the dilation rates used in multi-scale window attention?
+    \item Why is \texttt{losses/spectral\_texture\_loss.py} classified as an inactive experimental component in the Stage 4 pipeline?
+\end{enumerate}
+
+\subsection*{Solutions}
+\begin{enumerate}
+    \item \texttt{models/ecrformer\_adapted.py} (specifically line 110: \texttt{out = (1.0 - mask) * s2\_cloudy + mask * pred\_direct}).
+    \item \texttt{models/module.py} inside the \texttt{MultiDilateWindowAttention} class (lines 377--418).
+    \item While the 2D FFT spectral loss was implemented and tested during Stage 2, it was superseded in Stage 4 by the superior texture fidelity provided by the combination of local standard deviation matching, multi-scale signed gradients, and the 11-channel high-pass PatchGAN.
+\end{enumerate}

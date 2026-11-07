@@ -1,0 +1,99 @@
+\chapter{Evaluation Metrics and Result Interpretation}
+\label{chap:ch16}
+
+\section{The Multidimensional Challenge of Visual Evaluation}
+How do we mathematically determine whether one reconstructed satellite image is "better" than another?
+
+In remote sensing, human visual inspection is subjective and cannot scale to millions of square kilometers. We rely on quantitative mathematical metrics. However, blindly relying on a single metric (such as PSNR) can lead to catastrophic mistakes.
+
+\section{Core Mathematical Metrics}
+
+\subsection{Peak Signal-to-Noise Ratio (PSNR)}
+PSNR measures the ratio between the maximum possible power of a valid physical signal and the corrupting power of reconstruction noise. Given target $\mathbf{Y}^*$ and prediction $\hat{\mathbf{Y}}$ bounded in $[0, 1]$ ($\text{MAX}_I = 1.0$):
+\begin{equation}
+\text{MSE} = \frac{1}{C \cdot H \cdot W} \sum_{c=1}^C \sum_{h=1}^H \sum_{w=1}^W \big( \hat{\mathbf{Y}}_{c,h,w} - \mathbf{Y}^*_{c,h,w} \big)^2
+\end{equation}
+\begin{equation}
+\text{PSNR} = 10 \log_{10}\left( \frac{1.0^2}{\text{MSE}} \right) = -10 \log_{10}(\text{MSE}) \quad (\text{measured in decibels, dB})
+\end{equation}
+\begin{itemize}
+    \item A higher PSNR indicates lower numerical pixel variance.
+    \item A reconstructed patch with $\text{MSE} = 0.001$ yields $\text{PSNR} = -10 \log_{10}(0.001) = \mathbf{30.0\text{ dB}}$.
+    \item Typical acceptable cloud removal quality is $\ge 28\text{--}32\text{ dB}$.
+\end{itemize}
+
+\subsection{Structural Similarity Index Measure (SSIM)}
+Introduced by Wang et al.~\cite{wang2004ssim}, SSIM evaluates image degradation not as independent pixel errors, but as perceived changes in structural information, luminance, and contrast:
+\begin{equation}
+\text{SSIM}(\mathbf{x}, \mathbf{y}) = \frac{(2\mu_x \mu_y + C_1)(2\sigma_{xy} + C_2)}{(\mu_x^2 + \mu_y^2 + C_1)(\sigma_x^2 + \sigma_y^2 + C_2)}
+\end{equation}
+where $\mu$ denotes local mean, $\sigma$ denotes local variance, and $\sigma_{xy}$ is cross-covariance.
+\begin{itemize}
+    \item Range: $[-1, +1]$, where $+1.0$ indicates identical structural textures.
+    \item Excellent reconstructions achieve $\text{SSIM} \ge 0.85\text{--}0.90$.
+\end{itemize}
+
+\subsection{Detail Ratio: High-Frequency Energy Retention}
+Standard PSNR and SSIM are notoriously blind to blurriness. To quantify over-smoothing explicitly, our project introduced the \textbf{Detail Ratio}:
+\begin{equation}
+\text{Detail Ratio} = \frac{\mathbb{E}\big[ |\nabla^2 \hat{\mathbf{Y}}|^2 \big]}{\mathbb{E}\big[ |\nabla^2 \mathbf{Y}^*|^2 \big]}
+\end{equation}
+where $\nabla^2$ is the $3 \times 3$ discrete Laplacian operator measuring edge energy:
+\[
+\nabla^2 = \begin{bmatrix} 0 & 1 & 0 \\ 1 & -4 & 1 \\ 0 & 1 & 0 \end{bmatrix}
+\]
+\begin{itemize}
+    \item A value of $1.00$ ($100\%$) indicates that the reconstruction preserves the exact high-frequency texture energy of the ground-truth clear imagery.
+    \item Stage 1 baseline models scored only $\mathbf{0.23\text{--}0.47}$ ($53\%\text{--}77\%$ texture energy lost to blurring!).
+    \item Our Stage 4 GAN model achieves $\mathbf{0.8576}$ ($85.8\%$ texture fidelity!).
+\end{itemize}
+
+\section{The Illusion of Global Metrics: Why Cloud Stratification is Mandatory}
+Suppose a test patch has a tiny cloud covering only $5\%$ of its area ($\mathbf{M} = 1$ on $5\%$ of pixels, $0$ on $95\%$).
+Because our model uses soft-mask blending:
+\[
+\hat{\mathbf{Y}} = (1 - \mathbf{M})\mathbf{X}_{S2} + \mathbf{M}\mathbf{P}_{\text{dir}}
+\]
+On $95\%$ of the pixels, $\hat{\mathbf{Y}} = \mathbf{X}_{S2} = \mathbf{Y}^*$, so the error on $95\%$ of the image is literally \textbf{zero}!
+Even if the neural network completely hallucinates or fills the cloudy $5\%$ with flat grey, the global PSNR will be over $38\text{ dB}$!
+
+\begin{warningbox}{The Necessity of Stratified Evaluation}
+Reporting a single global average PSNR across an entire test set hides whether a model can actually reconstruct thick clouds. In our evaluation protocol, we enforce \textbf{cloud-coverage stratification}:
+\begin{enumerate}
+    \item \textbf{Heavy Cloud Strata ($70\%\text{--}100\%$ cloud coverage):} The ultimate stress test; tests true radar-to-optical reconstruction capability.
+    \item \textbf{Moderate Cloud Strata ($40\%\text{--}70\%$ cloud coverage):} Tests reconstruction and contextual border integration.
+    \item \textbf{Light Cloud / Haze Strata ($0\%\text{--}40\%$ cloud coverage):} Tests thin haze removal and background preservation.
+\end{enumerate}
+\end{warningbox}
+
+\section{The Perception-Distortion Trade-Off}
+Why does our Stage 4 GAN model have a slightly lower PSNR ($29.97\text{ dB}$) than an over-smoothed model ($30.20\text{ dB}$), yet looks dramatically sharper and more realistic to human geologists?
+
+This phenomenon is known in computer vision as the \textbf{Perception-Distortion Trade-Off} (Blau \& Michaeli):
+\begin{itemize}
+    \item If a model predicts a sharp agricultural tree row shifted by just 1 pixel relative to the target, the pixel-wise difference $(\hat{y}_i - y_i)^2$ is penalized twice (once at the old location, once at the new one), driving PSNR down!
+    \item If a model blurs the trees into a smooth green wash, its error at every pixel is moderate, yielding a higher PSNR!
+    \item A higher PSNR can reward blurriness. True research evaluation requires evaluating PSNR alongside SSIM, Edge Correlation, and the Detail Ratio.
+\end{itemize}
+
+\section{Summary of Chapter 16}
+\begin{enumerate}
+    \item PSNR measures logarithmic signal-to-noise ratio; SSIM measures structural and contrast similarity.
+    \item The Detail Ratio computes Laplacian high-frequency energy retention, exposing over-smoothing.
+    \item Global metrics are skewed by clear-sky pixels; evaluation must be stratified by cloud coverage ($>70\%$ heavy clouds).
+    \item The perception-distortion trade-off explains why perceptually sharper GAN models can have slightly lower PSNR than artificially blurred models.
+\end{enumerate}
+
+\section{Practice Exercises}
+\begin{enumerate}
+    \item Calculate the PSNR in decibels (dB) for an image reconstruction with Mean Squared Error $\text{MSE} = 0.0001$.
+    \item A model achieves a Detail Ratio of $0.35$. What does this reveal about its physical reconstructions?
+    \item Why does a 1-pixel spatial shift of a sharp edge severely reduce PSNR while barely affecting human perceptual quality?
+\end{enumerate}
+
+\subsection*{Solutions}
+\begin{enumerate}
+    \item $\text{PSNR} = -10 \log_{10}(0.0001) = -10 \log_{10}(10^{-4}) = -10 \times (-4) = \mathbf{40.0\text{ dB}}$.
+    \item A Detail Ratio of $0.35$ means that the reconstructed image contains only $35\%$ of the high-frequency edge energy of the true clear scene; $65\%$ of the fine texture has been smoothed away into blurry gradients.
+    \item Pixel-wise MSE compares values strictly at the identical coordinate $(x, y)$. If a high-contrast edge ($0 \to 1$) shifts by 1 pixel, the MSE at that pixel jumps from $0 \to (1 - 0)^2 = 1.0$. Even though the edge is structurally present, the point-wise error is maximal, heavily reducing the logarithmic PSNR score.
+\end{enumerate}

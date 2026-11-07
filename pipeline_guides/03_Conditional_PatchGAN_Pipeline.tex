@@ -1,0 +1,175 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+\usepackage{graphicx}
+
+\tcbuselibrary{skins,breakable}
+
+% Colors
+\definecolor{primary}{HTML}{1B365D}   % Navy
+\definecolor{secondary}{HTML}{008080} % Teal
+\definecolor{accent}{HTML}{C0392B}    % Crimson
+\definecolor{boxbg}{HTML}{F8FAFC}     % Off-white
+\definecolor{bordercolor}{HTML}{CBD5E1}
+
+% Page styling
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\textcolor{primary}{\small\textbf{Pipeline Document 03: Conditional PatchGAN}}}
+\lhead{\small CUSAT MSc AI Mini-Project}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.6pt}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=primary,
+    urlcolor=secondary,
+    citecolor=primary
+}
+
+\begin{document}
+
+% Title Header
+\begin{center}
+    {\LARGE \textbf{\textcolor{primary}{03 $\cdot$ CONDITIONAL PATCHGAN ADVERSARIAL PIPELINE}}}\\[0.4em]
+    {\large \textbf{Overcoming the Over-Smoothing Trap via Multi-Modal Discriminator Critique}}\\[0.6em]
+    {\small \textbf{Project:} SAR-Guided Satellite Cloud Removal $\cdot$ ECRformer + Conditional PatchGAN}\\
+    {\small \textbf{Authors:} Agnal K V $\cdot$ Bivin Balu $\cdot$ Vaishnav T Prakash $\quad|\quad$ \textbf{Supervisor:} Dr. Sabu M K}\\
+    {\small Department of Computer Applications, Cochin University of Science and Technology (CUSAT)}
+\end{center}
+\vspace{-0.5em}
+\noindent\rule{\linewidth}{1.2pt}
+
+\vspace{0.8em}
+\begin{tcolorbox}[colback=primary!5!white,colframe=primary,title=\textbf{Document Purpose \& Adversarial Objective},fonttitle=\bfseries]
+Standard deep learning architectures trained solely with pixel-level distortion losses ($L_1$, $L_2$, SSIM) inevitably suffer from \textbf{regression to the conditional mean}---producing blurry, lifeless surfaces under thick clouds. This document details how our \textbf{11-channel Conditional PatchGAN Discriminator} ($D_\phi$) and \textbf{Opaque Cloud Cutout} work synergistically to restore realistic high-frequency ground detail (+142\% sharpness gain), and justifies \textbf{why each adversarial design choice outperforms traditional GAN frameworks}.
+\end{tcolorbox}
+
+\section{The Core Problem: The "Over-Smoothing Trap"}
+
+When an optical satellite patch is covered by an opaque cloud, the true underlying surface could be a dark asphalt highway, a green lawn, or a terracotta building roof. Because regression losses ($L_1 = |P - Y|$) penalize large deviations heavily, the mathematically optimal strategy for the neural network is to predict the \textbf{average of all possibilities} (a flat greyish-brown smudge). 
+
+\begin{equation}
+P^* = \arg\min_P \mathbb{E}[\|P - Y\|_1] = \text{Median}(Y | X) \implies \text{Severe Blurring}
+\end{equation}
+
+Our metric measurements confirm this phenomenon: the baseline ECRformer model achieves high PSNR ($30.20\text{ dB}$), but its \textbf{Detail Ratio} (ratio of high-frequency gradient energy to real ground truth) plunges to \textbf{0.354} under dense overcast. To solve this, we introduce an adversarial game.
+
+\section{Architecture of the 11-Channel PatchGAN Critic}
+
+Instead of evaluating an image globally as "real" or "fake", our discriminator operates on local $16 \times 16$ spatial patches.
+
+\begin{center}
+\begin{tcolorbox}[colback=boxbg,colframe=bordercolor,width=0.98\linewidth]
+\textbf{\textcolor{primary}{Discriminator Specifications ($D_\phi$):}}
+\begin{itemize}[leftmargin=1.5em, itemsep=0.3em]
+    \item \textbf{Input Dimensionality (11 Channels):}
+    \begin{align}
+    X_D &= \Big[ S_1 \,(2\text{ch}), \; S_{2,\text{cloudy}} \,(4\text{ch}), \; M \,(1\text{ch}), \; \text{Candidate} \,(4\text{ch}) \Big] \notag \\
+        &\in \mathbb{R}^{B \times 11 \times 128 \times 128}
+    \end{align}
+    where $\text{Candidate}$ is either real ground truth $Y$ or synthesized prediction $P_{\text{dir}}$.
+    \item \textbf{Local Receptive Field ($16 \times 16$ Patch Grid):} Rather than outputting a single scalar, $D_\phi$ outputs an $8 \times 8$ grid of local validity logits. Each logit evaluates whether a specific $16 \times 16$ ground patch matches natural optical texture and obeys the underlying SAR radar dielectric profile.
+    \item \textbf{High-Pass Spectral Focus:} By restricting the receptive field to $16 \times 16$, the discriminator focuses exclusively on fine local textures (crop furrows, road lanes, building edges), leaving global color calibration to the $L_1$ and SDFL losses.
+\end{itemize}
+\end{tcolorbox}
+\end{center}
+
+\newpage
+
+\section{Training Objectives \& Loss Dynamics}
+
+The adversarial framework alternates between training the Critic $D$ and Generator $G$ across two computational graphs.
+
+\subsection{1. Generator Adversarial \& Feature Matching Loss}
+\begin{align}
+\mathcal{L}_{\text{adv}}(G) &= \mathbb{E}_{X}\left[ \left( D(X, P_{\text{dir}}) - 1 \right)^2 \right] \quad &&\text{(Least Squares GAN penalty)}\\
+\mathcal{L}_{\text{FM}}(G, D) &= \sum_{l=1}^L \frac{1}{N_l} \left\| D^{(l)}(X, Y) - D^{(l)}(X, P_{\text{dir}}) \right\|_1 \quad &&\text{(Perceptual feature matching)}
+\end{align}
+
+\subsection{2. The Composite Generator Loss Formulation}
+The complete loss driving ECRformer's backpropagation is:
+\begin{equation}
+\mathcal{L}_{\text{total}} = \mathcal{L}_{L1} + \lambda_{\text{SDFL}} \mathcal{L}_{\text{SDFL}} + w_{\text{adv}} \mathcal{L}_{\text{adv}} + w_{\text{FM}} \mathcal{L}_{\text{FM}} + \lambda_{\text{corr}} \mathcal{L}_{\text{corr}}
+\end{equation}
+where $w_{\text{adv}} = 0.04$ and $w_{\text{FM}} = 0.35$ maintain stable Nash equilibrium without gradient explosion.
+
+\section{Opaque Cloud Cutout ($65\%$ Modality Dropout)}
+
+In the SEN12MS-CR dataset, many training patches contain semi-transparent haze where road contours faintly leak through optical bands (correlation $>0.80$). 
+
+\begin{tcolorbox}[colback=white,colframe=accent,title=\textbf{The Modality Cheating Trap}]
+If the network is allowed to see these faint leaked optical edges during training, it learns a "shortcut"---it simply amplifies the faint optical lines and completely ignores the Sentinel-1 SAR radar stream. Consequently, when presented with real-world thick, opaque clouds, the model completely fails.
+\end{tcolorbox}
+
+\textbf{How We Prevent Cheating:} In $65\%$ of training iterations (\texttt{prob=0.65}), we apply \textbf{Opaque Cloud Cutout}:
+\begin{enumerate}[leftmargin=1.5em, itemsep=0.2em]
+    \item Identify cloudy pixels using $M > 0.5$.
+    \item Erase all optical ground textures under the mask using two consecutive passes of $15 \times 15$ average pooling.
+    \item Add realistic opaque cloud brightness, completely destroying optical edge information while maintaining valid $[0, 1]$ radiometric bounds.
+\end{enumerate}
+This \textbf{forces} ECRformer to extract $100\%$ of its structural boundaries from Sentinel-1 SAR radar!
+
+\section{Why We Used These Methods Over Others}
+
+\begin{tcolorbox}[colback=white,colframe=primary,title=\textbf{1. Why Conditional PatchGAN over Standard Global GAN (e.g. DCGAN, WGAN)?}]
+\textbf{Alternative:} Standard global discriminator that condenses the entire $128 \times 128$ image into a single scalar real/fake score.
+\begin{itemize}[leftmargin=1.2em, itemsep=0.2em]
+    \item \textbf{Failure of Alternative:} Global discriminators suffer from mode collapse. When forced to critique an entire satellite scene at once, they prioritize large-scale visual harmony, often hallucinating entire fictional city blocks or ignoring subtle blurry roads.
+    \item \textbf{Why Our Choice Wins:} PatchGAN operates as a local Markovian random field. It evaluates $16 \times 16$ patches independently. This forces the generator to produce crisp, high-frequency textural fidelity at the micro-scale, while the $L_1$ and SDFL terms ensure macro-scale geographic accuracy.
+\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[colback=white,colframe=secondary,title=\textbf{2. Why an 11-Channel Multi-Modal Discriminator over an Optical-Only Discriminator?}]
+\textbf{Alternative:} Feeding only the 4-channel generated optical image $P_{\text{dir}}$ to the discriminator.
+\begin{itemize}[leftmargin=1.2em, itemsep=0.2em]
+    \item \textbf{Failure of Alternative:} An optical-only critic only asks: \textit{"Does this patch look like plausible Earth terrain?"} The generator can easily trick it by generating a plausible forest over an area that is actually a seaport.
+    \item \textbf{Why Our Choice Wins:} By concatenating $S_1$ SAR (VV, VH) directly into the discriminator input ($11\text{ channels}$), the critic explicitly cross-references the optical prediction against the true radar backscatter. If the generator hallucinates trees where the radar shows smooth water, the 11-channel critic penalizes it immediately.
+\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[colback=white,colframe=primary,title=\textbf{3. Why Feature Matching Loss ($\mathcal{L}_{\text{FM}}$) over Pure Adversarial Loss Alone?}]
+\textbf{Alternative:} Training with only the binary cross-entropy or least-squares adversarial loss.
+\begin{itemize}[leftmargin=1.2em, itemsep=0.2em]
+    \item \textbf{Failure of Alternative:} Pure adversarial gradients are notorious for oscillating and causing high-frequency GAN "checkerboard" speckle noise.
+    \item \textbf{Why Our Choice Wins:} Feature Matching ($\mathcal{L}_{\text{FM}}$) matches the multi-scale activation representations across intermediate layers of the discriminator ($D^{(l)}$). It acts as a natural, self-supervised perceptual loss that stabilizes generator gradients and completely suppresses adversarial artifacts.
+\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[colback=white,colframe=secondary,title=\textbf{4. Why the Sweet-Spot Model (Score: 0.5439) over Late-Epoch GAN Checkpoints?}]
+\textbf{Alternative:} Running GAN training to 50 epochs and picking the final checkpoint.
+\begin{itemize}[leftmargin=1.2em, itemsep=0.2em]
+    \item \textbf{Failure of Alternative:} Beyond epoch 25, the discriminator becomes overly aggressive, forcing the generator to inject unnatural high-contrast speckle grain into clear terrain.
+    \item \textbf{Why Our Choice Wins:} We implemented a composite selection score:
+    \begin{equation}
+    \text{Score} = \text{EdgeCorr}_{\text{heavy}} + 0.5 \cdot \text{DetailRatio}_{\text{heavy}} - 5.0 \cdot \text{MAE}_{\text{all}}
+    \end{equation}
+    The designated \textbf{Sweet-Spot Model} (Epoch 18, Score 0.5439) captures peak edge correlation ($0.45+$) and natural detail ratio ($0.91$) without any synthetic noise artifacts.
+\end{itemize}
+\end{tcolorbox}
+
+% Quick Viva Sheet
+\section{15-Second Viva Examiner Defense Quick-Sheet}
+
+\begin{description}[leftmargin=1.5em, style=nextline]
+    \item[\textbf{Q: What is the Detail Ratio metric and why is it superior to PSNR for cloud removal?}]
+    \textit{Answer:} Detail Ratio measures the ratio of high-frequency gradient energy between predicted and ground-truth optical images. PSNR rewards blurry conditional mean predictions; Detail Ratio specifically quantifies whether roads, coastlines, and field boundaries are sharp ($1.00 = 100\%$ natural crispness).
+    
+    \item[\textbf{Q: Why is your PatchGAN discriminator conditional on Sentinel-1 SAR?}]
+    \textit{Answer:} Conditioning on SAR radar ensures that the generated optical features are physically grounded in actual microwave surface roughness rather than hallucinated by the generator.
+    
+    \item[\textbf{Q: What role does the Discriminator Warmup step play?}]
+    \textit{Answer:} In the first 100 steps, only the Discriminator is updated. This establishes an accurate local texture critique before the Generator updates its weights, preventing early training instability.
+\end{description}
+
+\end{document}

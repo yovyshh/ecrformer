@@ -1,0 +1,83 @@
+\chapter{Frequently Asked Questions}
+\label{chap:ch23}
+
+\section{Core Conceptual and Practical Questions}
+
+\subsection*{Q1: Why can a neural network not simply copy the cloud-free target?}
+Because during real-world inference and production deployment, \textbf{the cloud-free target does not exist!} If we already had the cloud-free optical image, we would have no need for cloud removal! The cloud-free target is only provided during training to calculate loss gradients. The network must learn generalizable physical mappings from radar and context so it can reconstruct terrain when no optical target is available.
+
+\subsection*{Q2: Why does a model need Sentinel-1 SAR data?}
+Optical light cannot penetrate thick clouds. An optical-only model is performing blind inpainting: it has zero evidence of whether a mountain, a lake, or a city lies beneath an opaque cloud. Sentinel-1 microwave radar penetrates clouds effortlessly, providing real-time measurements of surface roughness, moisture, and geometry that remove physical ambiguity.
+
+\subsection*{Q3: Why do we need an encoder and a decoder?}
+The encoder progressively downsamples feature maps to compress macroscopic semantic context (e.g., recognizing that an entire valley is agricultural). The decoder upsamples this semantic blueprint back to full spatial resolution, while skip connections reintroduce high-resolution edges that were lost during downsampling.
+
+\subsection*{Q4: Why use attention if CNNs already detect features?}
+Convolutional kernels only inspect local neighborhoods ($3 \times 3$ pixels). To correlate an agricultural field on the north side of a wide cloud with an identical field on the south side, a CNN requires dozens of layers to build receptive field overlap. Attention mechanisms allow every pixel or channel to communicate directly across the entire image in a single computational step.
+
+\subsection*{Q5: What does a transformer learn in satellite vision?}
+Transformers learn dynamic correlation patterns. In channel-wise attention (MDTA), the model learns how radar polarization channels correlate with optical reflectance bands across different biomes. In spatial window attention (MDWA), it learns multi-scale spatial texture continuity across cloud boundaries.
+
+\subsection*{Q6: Why does a loss function matter so much?}
+The loss function defines the objective of optimization. If you use Mean Squared Error ($L_2$), the mathematical minimum is the conditional average of all possible ground surfaces, which guarantees an over-smoothed, blurry output. To obtain sharp textures, the loss function must penalize blurred gradients, local variance loss, and unnatural frequencies.
+
+\subsection*{Q7: Why do gradients flow backward rather than forward?}
+Because the error (loss) is calculated at the very end of the network (the output). By applying the multivariable calculus Chain Rule, we must work backward from the output to calculate how changes in early weights affect the final error.
+
+\subsection*{Q8: Why are there multiple loss functions combined in training?}
+No single mathematical loss captures all aspects of satellite imagery. Scale-decoupled $L_1$ ensures radiometric accuracy; multi-scale signed gradients ensure sharp boundaries; local standard deviation matching ensures surface roughness; VGG perceptual loss ensures semantic realism; and adversarial PatchGAN loss forces the synthesis of natural high-frequency textures.
+
+\subsection*{Q9: Why does training require tens of thousands of examples?}
+A neural network with 3.6 million parameters has immense flexibility. If trained on only 50 images, it would simply memorize those specific fields (overfitting). Training on 33,468 patches spanning diverse seasons, climates, and continents forces the network to learn invariant physical relationships between microwave backscatter and optical reflectance.
+
+\subsection*{Q10: What is the fundamental difference between training and inference?}
+During training, the model processes cloudy inputs, compares predictions against clear-sky targets, computes loss gradients, and updates its weights via backpropagation. During inference, clear targets are absent, autograd is disabled (\texttt{torch.no\_grad()}), dropout is turned off (\texttt{model.eval()}), EMA weights are loaded, and the model outputs finalized reconstructed imagery.
+
+\subsection*{Q11: Why can a model produce blurry watercolor-like results?}
+This is the "conditional mean trap." When a model is trained primarily with $L_1$ or $L_2$ pixel losses under high uncertainty, predicting a blurry average incurs less numerical penalty than predicting sharp textures with slight positional phase errors. Activating local variance matching and high-pass PatchGAN discriminators eliminates this flaw.
+
+\subsection*{Q12: Why does a cloud mask have to be spatially aligned with the image?}
+If a cloud mask is shifted by even two pixels, the soft-mask blending gate $\hat{\mathbf{Y}} = (1 - \mathbf{M})\mathbf{X}_{S2} + \mathbf{M}\mathbf{P}_{\text{dir}}$ will copy thick cloudy pixels into the final image while cutting out real ground pixels. Spatial alignment must be exact.
+
+\subsection*{Q13: Why is the reconstructed output not guaranteed to be the exact original ground?}
+When an opaque cloud completely obscures an area, microscopic surface details (such as the exact arrangement of cars in a parking lot) do not produce distinct microwave signatures at 10-meter SAR resolution. The network reconstructs a physically consistent, highly plausible surface matching the radar and contextual evidence, but cannot retrieve microscopic non-radar optical phenomena.
+
+\subsection*{Q14: What is the difference between a GAN and a Transformer?}
+A Transformer is a \textbf{network architecture} utilizing attention mechanisms to model dependencies. A GAN is a \textbf{training framework} involving two competing networks (Generator and Discriminator). In our project, ECRformer is the Transformer that acts as the Generator inside a conditional GAN framework!
+
+\subsection*{Q15: Can a GAN replace ECRformer?}
+No. The GAN is the game-theoretic training protocol, not a specific backbone. ECRformer-Light serves as the generator network inside the GAN. Removing ECRformer would require replacing it with an alternative generator backbone (such as a pure CNN or ResNet).
+
+\subsection*{Q16: Does the model learn from the cloud mask directly?}
+Yes. The cloud mask enters the network as channel 6 in the 7-channel input tensor. This informs the encoder which spatial regions are obscured by clouds, allowing attention layers to discount cloudy optical pixels and prioritize radar signals.
+
+\subsection*{Q17: Does the model use the mask during inference?}
+Yes. The mask is used both as an input conditioning channel and as the blending gate that seamlessly preserves original clear optical pixels while inserting reconstructed terrain under clouds.
+
+\subsection*{Q18: Which modules contribute to the final prediction?}
+The decoupled stem, all 3 encoder stages, all 3 downsamplers, the Restormer bottleneck, all 3 upsamplers, all 3 decoder stages, the final convolutional head, and the soft-mask blend gate all contribute directly. Auxiliary projection heads (\texttt{down\_proj}, \texttt{up\_proj}) contribute to gradient flow during training but are discarded during inference.
+
+\subsection*{Q19: Which modifications have actually been tested in our repository?}
+We have empirically tested: (1) Stage 1 Baseline ECRformer with SDFL; (2) Stage 2 Shift-Invariant 2D FFT Loss; (3) Stage 3 Structural Perceptual Loss with Opaque Cutout; and (4) Stage 4 11-Channel High-Pass Conditioned PatchGAN with Scale-Decoupled $L_1$. Stage 4 produced our premier sweetspot model (\texttt{ecrformer\_sweetspot\_best}).
+
+\section{Summary of Chapter 23}
+\begin{enumerate}
+    \item Multimodal satellite reconstruction relies on the physical synergy between cloud-penetrating radar and high-resolution optical bands.
+    \item Blurring is an artifact of naive objective functions, overcome through high-pass adversarial and variance losses.
+    \item Transformers provide the architectural backbone, while GANs provide the competitive training framework.
+    \item Mask conditioning and soft-mask blending are separate operations with distinct physical roles.
+\end{enumerate}
+
+\section{Practice Exercises}
+\begin{enumerate}
+    \item What is the difference between an architecture (like ECRformer) and an optimization framework (like a GAN)?
+    \item Why does an optical-only model fail under thick opaque clouds regardless of how deep its neural network is?
+    \item Which components of \texttt{ECRformerAdaptedModel} are active during inference versus only active during training?
+\end{enumerate}
+
+\subsection*{Solutions}
+\begin{enumerate}
+    \item An architecture specifies the internal layers, tensor shapes, and mathematical operations used to transform inputs into outputs (e.g., convolutions, attention blocks, linear layers). An optimization framework defines how networks are trained and supervised (e.g., supervised loss minimization vs. adversarial minimax competition between a generator and discriminator).
+    \item Under completely opaque clouds, optical photons reflected from the ground are 100\% scattered or absorbed before reaching the satellite sensor. The data received by the optical sensor contains zero ground information; therefore, no mathematical operation on optical data alone can recover the ground surface without guessing.
+    \item Active during inference: the Decoupled Stem, Encoders 0--2, Downsamplers 0--2, Bottleneck, Upsamplers 0--2, Decoders 0--2, Final Conv Head, and Soft-Mask Blend Gate. Active only during training: the Discriminator network and the auxiliary projection heads (\texttt{down\_proj[0..2]} and \texttt{up\_proj[0..2]}).
+\end{enumerate}

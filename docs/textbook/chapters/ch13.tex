@@ -1,0 +1,98 @@
+\chapter{Generative Adversarial Networks --- GANs From Scratch}
+\label{chap:ch13}
+
+\section{The Intuition of Adversarial Competition}
+Generative Adversarial Networks (Goodfellow et al., Isola et al.~\cite{isola2017pix2pix}) formulate deep learning as a two-player zero-sum game between two competing neural networks:
+\begin{enumerate}
+    \item \textbf{The Generator ($\mathcal{G}$):} Plays the role of an art forger attempting to paint realistic clear-sky optical satellite imagery beneath clouds.
+    \item \textbf{The Discriminator ($\mathcal{D}$):} Plays the role of an art detective examining satellite images to determine whether a given patch is a genuine satellite acquisition or an artificial synthetic reconstruction.
+\end{enumerate}
+
+\begin{conceptbox}{Why Adversarial Competition Eliminates Blurring}
+If a standard generator produces a blurry patch to safely minimize $L_1$ error, a conventional loss function will not complain. But a trained Discriminator will instantly recognize: \emph{"Real satellite sensors never produce blurry patches with zero high-frequency noise; this is obviously fake!"} and assign it a punitive error score. To fool the detective, the generator is forced to synthesize authentic high-frequency textures, crop field rows, and natural edge gradients!
+\end{conceptbox}
+
+\section{Conditional PatchGAN Architecture}
+In standard GANs, the discriminator inspects the entire image and outputs a single global probability scalar between 0 and 1.
+
+In \textbf{PatchGAN} (Isola et al.~\cite{isola2017pix2pix}), the discriminator is fully convolutional: its final layer produces a spatial grid of logit predictions (in our model, a $16 \times 16$ grid). Each neuron in this grid evaluates the realism of an overlapping local spatial patch ($\approx 70\text{ m} \times 70\text{ m}$ receptive field). This forces the discriminator to focus strictly on local high-frequency textures rather than global layout.
+
+\section{The Verified 11-Channel High-Pass Conditioned Discriminator}
+In \texttt{losses/patchgan\_loss.py} (lines 15--75), our project introduces a novel discriminator conditioning scheme specifically engineered to combat over-smoothing.
+
+Figure~\ref{fig:patchgan_11ch} illustrates the exact architecture and tensor flow.
+
+\input{figures/fig_patchgan_11ch}
+
+\subsection{Exact Channel Breakdown: 11 Input Channels}
+The discriminator receives an 11-channel concatenated tensor:
+\begin{enumerate}
+    \item \textbf{Base Optical Image ($4$ channels):} $3.0 \times \mathbf{Y}$ (B04, B03, B02, B08 scaled for optimal gradient response).
+    \item \textbf{High-Pass Residual Detail ($4$ channels):}
+    \begin{equation}
+    \mathbf{R}_{\text{HP}} = 10.0 \times \big(\mathbf{Y} - \text{AvgPool}_{5\times 5}(\mathbf{Y})\big)
+    \end{equation}
+    \item \textbf{Sentinel-1 SAR Condition ($2$ channels):} $\mathbf{X}_{\text{SAR}}$ (VV and VH polarizations).
+    \item \textbf{Soft Cloud Mask ($1$ channel):} $\mathbf{M} \in [0, 1]$.
+\end{enumerate}
+Total channels: $4 + 4 + 2 + 1 = \mathbf{11\text{ channels}}$.
+
+\begin{mathbox}{How the High-Pass Filter ($5 \times 5$ Residual) Works}
+Subtracting a local $5 \times 5$ average pool removes all low-frequency macroscopic colors, leaving only pure high-frequency edges, noise, and textures:
+\[
+\text{Low-Frequency Base} = \text{AvgPool}_{5\times 5}(\mathbf{Y})
+\]
+\[
+\text{High-Frequency Detail} = \mathbf{Y} - \text{AvgPool}_{5\times 5}(\mathbf{Y})
+\]
+Multiplying this residual by $10.0$ magnifies subtle texture differences by an order of magnitude. If the generator produces an over-smoothed, blurry reconstruction, its high-pass channels are nearly zero, allowing the discriminator to instantly penalize it!
+\end{mathbox}
+
+\subsection{Spectral Normalization}
+Every convolutional layer in the discriminator is wrapped with \textbf{Spectral Normalization} (\texttt{torch.nn.utils.spectral\_norm}, Miyato et al.~\cite{miyato2018spectral}). Spectral normalization divides weight matrices by their largest singular value (spectral norm $\sigma(\mathbf{W})$), strictly enforcing a 1-Lipschitz continuity constraint:
+\begin{equation}
+\|\mathcal{D}(\mathbf{x}_1) - \mathcal{D}(\mathbf{x}_2)\| \le 1.0 \cdot \|\mathbf{x}_1 - \mathbf{x}_2\|
+\end{equation}
+This mathematically guarantees that the discriminator's gradients cannot explode or vanish, stabilizing adversarial training and completely eliminating mode collapse!
+
+\subsection{Mask-Weighted Hinge Adversarial Loss}
+The discriminator loss is weighted by the downsampled cloud mask so that adversarial training concentrates on reconstructed cloud regions while applying baseline supervision to clear regions:
+\begin{equation}
+w_{\text{patch}} = 0.25 + 0.75 \times \text{AvgPool}_{8\times 8}(\mathbf{M})
+\end{equation}
+The Hinge loss formulation is computed as:
+\begin{align}
+\mathcal{L}_D &= \text{mean}\Big( w_{\text{patch}} \odot \big[ \text{ReLU}(1.0 - \mathcal{D}(\mathbf{X}_{\text{real}})) + \text{ReLU}(1.0 + \mathcal{D}(\mathbf{X}_{\text{fake}})) \big] \Big) \\
+\mathcal{L}_{G,\text{adv}} &= \text{mean}\Big( w_{\text{patch}} \odot \big[ -\mathcal{D}(\mathbf{X}_{\text{fake}}) \big] \Big)
+\end{align}
+
+\begin{researchbox}{Active Status of the GAN in the Repository}
+We audited all training scripts to establish the exact factual status of the GAN:
+\begin{itemize}
+    \item \textbf{Stage 1 (\texttt{train\_ecrformer.py}):} GAN was \textbf{INACTIVE}. Trained with baseline SDFL loss only. Reconstructions suffered from over-smoothing (detail ratio $23\%\text{--}47\%$).
+    \item \textbf{Stage 4 (\texttt{train\_ecrformer\_v4\_gan.py}):} The 11-channel PatchGAN was \textbf{FULLY ACTIVE} and trained in an alternating optimization loop. This run directly generated the project's premier checkpoint: \texttt{ecrformer\_sweetspot\_best/best\_model.pth} (retaining $85.76\%$ detail ratio and $29.97\text{ dB}$ PSNR on heavy clouds)!
+\end{itemize}
+\end{researchbox}
+
+\section{Summary of Chapter 13}
+\begin{enumerate}
+    \item GANs create an adversarial game between a generator and discriminator that forces generated imagery to exhibit natural high-frequency textures.
+    \item PatchGAN evaluates local $16 \times 16$ spatial grids, providing localized gradient feedback.
+    \item The 11-channel discriminator combines base optical, $10\times$ magnified high-pass residual, SAR conditions, and cloud masks.
+    \item Spectral normalization enforces 1-Lipschitz continuity, eliminating mode collapse.
+    \item The GAN was fully active during Stage 4 training, producing the verified sweetspot checkpoint.
+\end{enumerate}
+
+\section{Practice Exercises}
+\begin{enumerate}
+    \item Calculate the total number of channels entering the discriminator when base optical has 4 channels, high-pass has 4 channels, SAR has 2 channels, and mask has 1 channel.
+    \item Why does Spectral Normalization prevent discriminator gradients from exploding?
+    \item What is the value of $w_{\text{patch}}$ over a completely clear region ($\mathbf{M} = 0.0$)? Over a completely cloudy region ($\mathbf{M} = 1.0$)?
+\end{enumerate}
+
+\subsection*{Solutions}
+\begin{enumerate}
+    \item $4 + 4 + 2 + 1 = 11$ channels.
+    \item Spectral normalization bounds the Lipschitz constant of the network by scaling each weight matrix by its spectral norm ($\mathbf{W} / \sigma(\mathbf{W})$). This guarantees that the magnitude of the gradient $\|\nabla_{\mathbf{x}} \mathcal{D}(\mathbf{x})\| \le 1.0$ everywhere, preventing the discriminator from overpowering the generator with explosive gradients.
+    \item Over clear regions: $w_{\text{patch}} = 0.25 + 0.75(0.0) = 0.25$. Over cloudy regions: $w_{\text{patch}} = 0.25 + 0.75(1.0) = 1.00$. Cloudy patches receive $4\times$ stronger adversarial gradient feedback than clear patches!
+\end{enumerate}

@@ -1,0 +1,149 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+\usepackage{graphicx}
+
+\tcbuselibrary{skins,breakable}
+
+% Colors
+\definecolor{primary}{HTML}{1B365D}   % Navy
+\definecolor{secondary}{HTML}{008080} % Teal
+\definecolor{accent}{HTML}{C0392B}    % Crimson
+\definecolor{boxbg}{HTML}{F8FAFC}     % Off-white
+\definecolor{bordercolor}{HTML}{CBD5E1}
+
+% Page styling
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\textcolor{primary}{\small\textbf{Pipeline Document 02: Model Training}}}
+\lhead{\small CUSAT MSc AI Mini-Project}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.6pt}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=primary,
+    urlcolor=secondary,
+    citecolor=primary
+}
+
+\begin{document}
+
+% Title Header
+\begin{center}
+    {\LARGE \textbf{\textcolor{primary}{02 $\cdot$ ECRFORMER \& PATCHGAN TRAINING PIPELINE}}}\\[0.4em]
+    {\large \textbf{Generator Data Flow, Adversarial Critique, and High-Frequency Sharpening}}\\[0.6em]
+    {\small \textbf{Project:} SAR-Guided Satellite Cloud Removal $\cdot$ ECRformer + Conditional PatchGAN}\\
+    {\small \textbf{Authors:} Agnal K V $\cdot$ Bivin Balu $\cdot$ Vaishnav T Prakash $\quad|\quad$ \textbf{Supervisor:} Dr. Sabu M K}\\
+    {\small Department of Computer Applications, Cochin University of Science and Technology (CUSAT)}
+\end{center}
+\vspace{-0.5em}
+\noindent\rule{\linewidth}{1.2pt}
+
+\vspace{0.8em}
+\begin{tcolorbox}[colback=primary!5!white,colframe=primary,title=\textbf{Document Purpose \& Training Architecture},fonttitle=\bfseries]
+This document covers the complete \textbf{model training pipeline}. It explains how 7-channel multi-modal inputs ($S_1$ SAR, $S_{2,\text{cloudy}}$ optical, and soft mask $M$) pass through the \textbf{ECRformer Generator} ($G_\theta$), how the \textbf{11-channel Conditional PatchGAN Critic} ($D_\phi$) evaluates local texture fidelity, how \textbf{Opaque Cloud Cutout} prevents modality cheating, and \textbf{why these methods were chosen over standard alternatives}.
+\end{tcolorbox}
+
+\section{The Two-Player Adversarial Architecture}
+
+Training operates as a minimax game between two specialized networks:
+\begin{enumerate}[leftmargin=1.5em, itemsep=0.3em]
+    \item \textbf{Generator $G_\theta$ (ECRformer-Lite, 3.62M params):} Ingests 7-channel multi-modal stack and predicts unblended clear reflectance $P_{\text{dir}} \in \mathbb{R}^{B \times 4 \times 128 \times 128}$.
+    \item \textbf{Discriminator $D_\phi$ (11-channel PatchGAN, 2.77M params):} Ingests 11-channel conditional stack and evaluates local $16 \times 16$ spatial patch authenticity.
+\end{enumerate}
+
+\section{Forward Data Flow Through ECRformer}
+
+\begin{figure}[h!]
+\centering
+\small
+\renewcommand{\arraystretch}{1.25}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lllll}
+\toprule
+\textbf{Stage} & \textbf{Operation / Layer} & \textbf{Input Shape} & \textbf{Output Shape} & \textbf{Core Role in Cloud Removal} \\
+\midrule
+\textbf{0. Input Split} & Slicing across channel axis & $[B, 7, 128, 128]$ & $S_2:[B,4], S_1:[B,2], M:[B,1]$ & Isolates optical, SAR radar, and cloud mask \\
+\textbf{1. Decoupled Stem} & Two separate $7\times 7$ Convs & $S_2:[B,4], S_1:[B,2]$ & $F_{\text{opt}}:[B,32], F_{\text{sar}}:[B,32]$ & Domain-specific low-level feature extraction \\
+\textbf{2. 4-Stage Encoder} & Depth $[2, 2, 1, 1]$ & $[B, 32, 128, 128]$ & $[B, 256, 16, 16]$ & Multi-scale Cross-Modality Attention (CMA) \\
+\textbf{3. TSA Bottleneck}& Time-Space Attention & $[B, 256, 16, 16]$ & $[B, 256, 16, 16]$ & Global non-local spatial context modeling \\
+\textbf{4. Symmetric Decoder}& Transposed Convs + CBAM & $[B, 256, 16, 16]$ & $[B, 32, 128, 128]$ & Upsampling with filtered encoder skip connections \\
+\textbf{5. Residual Head} & $3\times 3$ Conv + Mean Prior & $[B, 32, 128, 128]$ & $[B, 4, 128, 128]$ & Outputs unblended direct prediction $P_{\text{dir}}$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Layer-by-layer tensor progression throughout ECRformer Generator.}
+\end{figure}
+
+\subsection{Cross-Modality Attention (CMA)}
+Inside each encoder stage, optical queries ($Q$) query radar keys and values ($K, V$):
+\begin{equation}
+\text{CMA}(Q, K, V) = \text{Softmax}\left( \frac{Q K^T}{\sqrt{d_k}} \right) V
+\end{equation}
+This allows cloudy optical regions to dynamically import physical dielectric surface contours from the penetrating SAR signal.
+
+\newpage
+
+\section{PatchGAN Critique \& Opaque Cloud Cutout}
+
+\subsection{Overcoming the "Blurriness Trap"}
+Standard $L_1$ and $L_2$ losses predict the conditional mean $\mathbb{E}[Y | X]$, which turns highways and building blocks into smooth grey smudges. PatchGAN solves this by critiquing high frequencies across $16 \times 16$ local patches.
+
+\subsection{Opaque Cloud Cutout ($65\%$ Modality Dropout)}
+In thin haze, optical ground lines faintly leak through $S_{2,\text{cloudy}}$. If left unchecked, the model cheats by ignoring SAR. In $65\%$ of training crops, we erase optical ground edges under the mask using 2-pass $15 \times 15$ pooling and bright cloud veiling, \textbf{forcing the network to learn SAR feature reconstruction}.
+
+\subsection{Composite Training Loss}
+\begin{equation}
+\mathcal{L}_{\text{total}} = \mathcal{L}_{L1} + \lambda_{\text{SDFL}} \mathcal{L}_{\text{SDFL}} + w_{\text{adv}} \mathcal{L}_{\text{adv}} + w_{\text{FM}} \mathcal{L}_{\text{FM}} + \lambda_{\text{corr}} \mathcal{L}_{\text{corr}}
+\end{equation}
+with $w_{\text{adv}} = 0.04$ and $w_{\text{FM}} = 0.35$.
+
+\section{Why We Used These Methods Over Others}
+
+\begin{tcolorbox}[colback=white,colframe=primary,title=\textbf{1. Why ECRformer over Standard Convolutional U-Nets (e.g. Pix2Pix, DSen2-CR)?}]
+\textbf{Alternative:} Standard U-Net with local $3 \times 3$ convolutions.
+\begin{itemize}[leftmargin=1.2em, itemsep=0.2em]
+    \item \textbf{Failure of Alternative:} Local convolutions cannot see beyond $5 \times 5$ pixels. Under vast regional cloud cover ($>50\text{ km}$), convolutions see only white pixels and cannot borrow context from distant clear ground.
+    \item \textbf{Why Our Choice Wins:} Self-attention gives ECRformer an infinite receptive field, enabling it to reference clear ground context $10+\text{ km}$ away.
+\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[colback=white,colframe=secondary,title=\textbf{2. Why an 11-Channel Multi-Modal Discriminator over Optical-Only Critics?}]
+\textbf{Alternative:} Feeding only the generated optical image $P_{\text{dir}}$ to the discriminator.
+\begin{itemize}[leftmargin=1.2em, itemsep=0.2em]
+    \item \textbf{Failure of Alternative:} Optical-only critics only verify whether an image looks like Earth terrain; the generator can hallucinate plausible farms where the ground is actually an industrial port.
+    \item \textbf{Why Our Choice Wins:} Conditioning on Sentinel-1 SAR radar ($11\text{ channels}$) forces the generated optical textures to strictly obey the physical microwave backscatter of the real ground below.
+\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[colback=white,colframe=primary,title=\textbf{3. Why Scale-Decoupled Frequency Loss (SDFL) over Standard $L_1$ Alone?}]
+\textbf{Alternative:} Mean Absolute Error ($L_1$) across pixels.
+\begin{itemize}[leftmargin=1.2em, itemsep=0.2em]
+    \item \textbf{Failure of Alternative:} $L_1$ is dominated by low-frequency illumination, rewarding blurry mean predictions.
+    \item \textbf{Why Our Choice Wins:} SDFL uses a Laplacian pyramid to isolate high-frequency octaves, penalizing edge gradient errors independently and boosting Detail Ratio from $0.354$ to $0.931$ (+142\% sharper).
+\end{itemize}
+\end{tcolorbox}
+
+% Quick Viva Sheet
+\section{15-Second Viva Examiner Defense Quick-Sheet}
+
+\begin{description}[leftmargin=1.5em, style=nextline]
+    \item[\textbf{Q: How many parameters are trained in your system?}]
+    \textit{Answer:} The generator contains $3.62$ Million parameters ($\approx 14\text{ MB}$), while the PatchGAN critic contains $2.77$ Million parameters, enabling efficient training on a single GPU.
+    
+    \item[\textbf{Q: What is the purpose of the Opaque Cloud Cutout augmentation?}]
+    \textit{Answer:} It erases leaked optical ground textures in $65\%$ of training crops to prevent the network from taking optical shortcuts, forcing it to utilize Sentinel-1 SAR radar.
+\end{description}
+
+\end{document}

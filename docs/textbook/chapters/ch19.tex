@@ -1,0 +1,147 @@
+\chapter{Common Problems, Debugging, and Failure Analysis}
+\label{chap:ch19}
+
+\section{The Reality of Satellite Deep Learning Debugging}
+In computer vision research, things rarely work on the first attempt. Training a multimodal, multi-scale transformer with adversarial loss involves dozens of moving parts. A single misaligned dimension, unnormalized channel, or inverted mask can corrupt months of computation.
+
+This chapter presents a field-tested diagnostic guide to the 16 most common failure modes in multimodal satellite vision.
+
+\section{The 16 Critical Failure Modes and Proven Remedies}
+
+\subsection{1. Optical Radiometric Normalization Mismatch}
+\begin{itemize}
+    \item \textbf{Symptom:} Outputs are entirely pure white, washed out, or completely pitch black.
+    \item \textbf{Root Cause:} Sentinel-2 images are stored as 16-bit integers ($[0, 10000]$). Dividing by 255 (standard 8-bit web image normalization) causes all reflectance values to exceed $1.0$ by a factor of 40!
+    \item \textbf{Remedy:} Always normalize via $\text{clip}(\text{DN} / 10000.0, 0.0, 1.0)$.
+\end{itemize}
+
+\subsection{2. Swapped Channel Order}
+\begin{itemize}
+    \item \textbf{Symptom:} Model outputs surreal neon pinks or greens, and radar features are ignored.
+    \item \textbf{Root Cause:} Python libraries handle channel orders differently (OpenCV uses BGR, PIL uses RGB, GeoTIFF uses arbitrary band indices). Slicing channels $0:2$ assuming they are SAR when they are actually Red/Green breaks the decoupled stem.
+    \item \textbf{Remedy:} Enforce an explicit channel schema: \texttt{[VV, VH, B04, B03, B02, B08, Mask]}.
+\end{itemize}
+
+\subsection{3. Memory Layout / Dimension Transposition}
+\begin{itemize}
+    \item \textbf{Symptom:} \texttt{RuntimeError: Expected 4D tensor with shape [B, C, H, W] but got [B, H, W, C]}.
+    \item \textbf{Root Cause:} NumPy and TensorFlow use channel-last ($[B, H, W, C]$); PyTorch requires channel-first ($[B, C, H, W]$).
+    \item \textbf{Remedy:} Apply \texttt{tensor.permute(0, 3, 1, 2).contiguous()}.
+\end{itemize}
+
+\subsection{4. Inverted Cloud Mask}
+\begin{itemize}
+    \item \textbf{Symptom:} The final blended image contains clouds where clouds were, while clear areas are replaced by blurry neural predictions.
+    \item \textbf{Root Cause:} Confusing $1 = \text{cloud}$ with $1 = \text{clear}$. In our pipeline:
+    \begin{equation}
+    \hat{\mathbf{Y}} = (1.0 - \mathbf{M}) \mathbf{X}_{S2} + \mathbf{M} \mathbf{P}_{\text{dir}}
+    \end{equation}
+    If $\mathbf{M} = 1$ on clear pixels, the formula discards the real clear pixels!
+    \item \textbf{Remedy:} Always verify that $\mathbf{M} = 1$ corresponds to clouds and $0$ to clear sky.
+\end{itemize}
+
+\subsection{5. Misaligned SAR and Optical Imagery}
+\begin{itemize}
+    \item \textbf{Symptom:} Double coastlines, blurry roads, or ghosted city skylines.
+    \item \textbf{Root Cause:} Sentinel-1 radar coordinates were not properly orthorectified with digital elevation models (DEM) or re-projected to match Sentinel-2's UTM grid.
+    \item \textbf{Remedy:} Verify geocoding with sub-pixel cross-correlation before training.
+\end{itemize}
+
+\subsection{6. Noisy or Seasonally Shifted Reference Targets}
+\begin{itemize}
+    \item \textbf{Symptom:} Training loss stops decreasing; model reconstructs green grass where winter snow should be.
+    \item \textbf{Root Cause:} The clear-sky target was acquired in summer while the cloudy image was taken in winter. The model is penalized for failing to predict summer crop phenology from winter radar data!
+    \item \textbf{Remedy:} Use scale-decoupled $L_1$ pooling ($4\times 4, 8\times 8$) which reduces sensitivity to micro-temporal pixel phase variations.
+\end{itemize}
+
+\subsection{7. Over-Smoothed Outputs (Low Detail Ratio)}
+\begin{itemize}
+    \item \textbf{Symptom:} Cloud-cleared regions have acceptable PSNR but look like smooth, blurry watercolor paintings (Detail Ratio $< 0.50$).
+    \item \textbf{Root Cause:} Solely relying on pixel-wise $L_1$/$L_2$ losses (the conditional mean trap).
+    \item \textbf{Remedy:} Activate local standard deviation matching ($16\times 16$), multi-scale signed gradients, and the 11-channel high-pass PatchGAN.
+\end{itemize}
+
+\subsection{8. Global Color / Radiometric Drift}
+\begin{itemize}
+    \item \textbf{Symptom:} Entire reconstructed patches exhibit an unnatural yellow, purple, or dark cast.
+    \item \textbf{Root Cause:} Final convolutional head bias initialized randomly with zero or Gaussian noise.
+    \item \textbf{Remedy:} Initialize \texttt{final\_conv.bias} to \texttt{CLEAR\_CHANNEL\_MEANS} ($[0.0847, 0.0919, 0.1127, 0.1884]$).
+\end{itemize}
+
+\subsection{9. Unstable GAN Training and Mode Collapse}
+\begin{itemize}
+    \item \textbf{Symptom:} Discriminator loss drops to 0.0 within 50 steps; generator outputs catastrophic geometric checkerboard noise or repeating geometric artifacts.
+    \item \textbf{Root Cause:} Discriminator is too strong, learning rates are unbalanced, or Lipschitz constraints are violated.
+    \item \textbf{Remedy:} Apply Spectral Normalization to all discriminator layers, use mask-weighted Hinge loss, and reduce adversarial generator weight to $w_{\text{adv}} = 0.015$.
+\end{itemize}
+
+\subsection{10. Loss Plateaus Early in Training}
+\begin{itemize}
+    \item \textbf{Symptom:} Loss decreases slightly in epoch 1 and remains completely flat for 20 epochs.
+    \item \textbf{Root Cause:} Learning rate too low or model trapped in a poor local minimum; radar features not propagating.
+    \item \textbf{Remedy:} Implement a $2\times$ differential learning rate on the SAR stem ($2 \times 10^{-4}$ vs. $1 \times 10^{-4}$) and verify LayerScale initialization ($\gamma = 0.01$).
+\end{itemize}
+
+\subsection{11. Exploding or Vanishing Gradients}
+\begin{itemize}
+    \item \textbf{Symptom:} Loss outputs \texttt{NaN} (Not a Number) or weights freeze with zero updates.
+    \item \textbf{Root Cause:} Extremely deep transformer attention layers without gradient clipping.
+    \item \textbf{Remedy:} Apply \texttt{torch.nn.utils.clip\_grad\_norm\_(model.parameters(), max\_norm=1.0)} and Automatic Mixed Precision with \texttt{GradScaler}.
+\end{itemize}
+
+\subsection{12. Overfitting (Train Loss Falls, Val Loss Rises)}
+\begin{itemize}
+    \item \textbf{Symptom:} Train loss reaches $0.01$ while validation PSNR degrades from $30\text{ dB} \to 25\text{ dB}$.
+    \item \textbf{Root Cause:} Model capacity is too high or data augmentation is absent.
+    \item \textbf{Remedy:} Apply random horizontal/vertical flips, 90-degree rotations, synthetic opaque cloud core cutouts ($p=0.65$), and weight decay ($1\times 10^{-4}$).
+\end{itemize}
+
+\subsection{13. Spatial Data Leakage}
+\begin{itemize}
+    \item \textbf{Symptom:} Validation PSNR is artificially high ($38\text{ dB}$), but performance on a newly acquired external satellite tile is catastrophic ($19\text{ dB}$).
+    \item \textbf{Root Cause:} Splitting dataset at the patch level rather than the geographical scene level.
+    \item \textbf{Remedy:} Partition train, val, and test sets strictly by distinct ROI scene directories.
+\end{itemize}
+
+\subsection{14. Metric Calculation Range Errors}
+\begin{itemize}
+    \item \textbf{Symptom:} PSNR reported as $8.2\text{ dB}$ or negative values despite visually flawless reconstructions.
+    \item \textbf{Root Cause:} Evaluating a $[0, 1]$ normalized image with a PSNR function that assumes $\text{MAX}_I = 255.0$ (or vice-versa).
+    \item \textbf{Remedy:} In $10 \log_{10}(\text{MAX}^2 / \text{MSE})$, set $\text{MAX} = 1.0$ when inputs are in $[0, 1]$.
+\end{itemize}
+
+\subsection{15. Visible Perimeter Seams in Blended Outputs}
+\begin{itemize}
+    \item \textbf{Symptom:} Sharp, unnatural cookie-cutter borders surround reconstructed clouds.
+    \item \textbf{Root Cause:} Blending with an unblurred binary mask ($\{0, 1\}$).
+    \item \textbf{Remedy:} Apply an $11 \times 11$ Gaussian blur ($\sigma=2.0$) to the dilated cloud mask.
+\end{itemize}
+
+\subsection{16. Out of Memory (OOM) GPU Crashes}
+\begin{itemize}
+    \item \textbf{Symptom:} \texttt{CUDA out of memory. Tried to allocate 2.40 GiB}.
+    \item \textbf{Root Cause:} High batch size or spatial self-attention memory explosion ($\mathcal{O}((HW)^2)$).
+    \item \textbf{Remedy:} Reduce batch size to 8 or 16, enable AMP (\texttt{torch.amp.autocast}), and ensure transposed channel attention (MDTA) is used instead of spatial attention.
+\end{itemize}
+
+\section{Summary of Chapter 19}
+\begin{enumerate}
+    \item Normalization, channel ordering, and mask orientation must be verified with mathematical rigor before launching training.
+    \item Over-smoothing is eliminated by moving away from naive $L_1$/$L_2$ losses to gradient, texture std, and high-pass PatchGAN losses.
+    \item Mode collapse is prevented by Spectral Normalization and conservative adversarial weighting ($w_{\text{adv}} = 0.015$).
+    \item Generalization requires scene-level dataset splitting to avoid spatial memorization.
+\end{enumerate}
+
+\section{Practice Exercises}
+\begin{enumerate}
+    \item If a training loss abruptly outputs \texttt{NaN} in epoch 3, what are the first two diagnostic actions you should take?
+    \item How does calculating PSNR with $\text{MAX}=255.0$ on a $[0, 1]$ image distort the resulting decibel score?
+    \item Why does a 3-step mask refinement (pool $\to$ dilate $\to$ Gaussian blur) resolve seam boundary artifacts?
+\end{enumerate}
+
+\subsection*{Solutions}
+\begin{enumerate}
+    \item First, verify whether gradient norm clipping (\texttt{clip\_grad\_norm\_}) was active, as unchecked gradient spikes produce infinities. Second, check whether any division by zero occurred (e.g., in cloud-masked losses without an $\epsilon = 10^{-8}$ denominator stabilizer) or if AMP \texttt{GradScaler} encountered severe overflow.
+    \item If $\text{MAX}$ is incorrectly set to $255.0$ instead of $1.0$, the numerator inside the logarithm is $255^2 = 65{,}025$ times too large! The calculated PSNR will be artificially inflated by $+10 \log_{10}(65{,}025) \approx \mathbf{+48.13\text{ dB}}$!
+    \item Dilation guarantees that cloud shadows and penumbra haze are encompassed within the mask, while Gaussian softening creates an alpha-blend transition over several pixels, eliminating step-function discontinuities.
+\end{enumerate}

@@ -1,0 +1,120 @@
+\chapter{Transformers and Attention Mechanisms From Scratch}
+\label{chap:ch10}
+
+\section{The Fundamental Limitation of Convolutional Networks}
+In a standard convolutional layer, each output neuron only sees a small local patch (e.g., $3 \times 3$ pixels). To capture relationships between two pixels separated by 80 pixels, a CNN must stack dozens of layers so that their receptive fields gradually overlap.
+
+In satellite cloud removal, this is a severe weakness:
+\begin{itemize}
+    \item A single cloud can cover a $60 \times 60$ pixel area.
+    \item The terrain on the southern edge of the cloud might be an olive orchard.
+    \item An identical olive orchard may be clearly visible 70 pixels away on the northern edge of the cloud!
+    \item A convolutional network struggles to connect these distant parcels because the information must diffuse slowly across dozens of intermediate layers.
+\end{itemize}
+
+\section{The Attention Mechanism: Queries, Keys, and Values}
+Vaswani et al.~\cite{vaswani2017attention} introduced the \textbf{Attention Mechanism} to allow any element in a sequence or image to interact directly with any other element in a single computational step.
+
+\begin{conceptbox}{Everyday Analogy: A Filing Cabinet Search}
+Imagine searching for a recipe in a kitchen library:
+\begin{itemize}
+    \item \textbf{Query ($Q$):} Your search request (e.g., "warm vegetable stew").
+    \item \textbf{Key ($K$):} The label or title written on each folder tab in the cabinet (e.g., "Folder 1: Chocolate Cakes", "Folder 2: Autumn Soups and Stews", "Folder 3: Grilled Steaks").
+    \item \textbf{Attention Score ($Q \cdot K^T$):} You compare your search query against every folder label. Folder 2 receives a high similarity score ($0.92$), while Folders 1 and 3 receive near zero.
+    \item \textbf{Value ($V$):} The actual contents (recipes) inside the folders.
+    \item \textbf{Output:} You take a weighted sum of the contents, extracting 92\% of your information from Folder 2 and almost nothing from the others!
+\end{itemize}
+\end{conceptbox}
+
+\section{The Scaled Dot-Product Attention Equation}
+Formally, given Query matrix $\mathbf{Q}$, Key matrix $\mathbf{K}$, and Value matrix $\mathbf{V}$:
+\begin{equation}
+\text{Attention}(\mathbf{Q}, \mathbf{K}, \mathbf{V}) = \text{Softmax}\left(\frac{\mathbf{Q} \mathbf{K}^T}{\sqrt{d_k}}\right) \mathbf{V}
+\end{equation}
+\begin{itemize}
+    \item $\mathbf{Q} \mathbf{K}^T$: Computes pairwise dot-product similarities between every query and key.
+    \item $\frac{1}{\sqrt{d_k}}$: Scaling factor based on feature dimension $d_k$ to prevent the dot products from growing excessively large for large dimensions (which would push softmax into near-zero gradient regions).
+    \item $\text{Softmax}(\cdot)$: Normalizes similarity scores along each row so that they sum to $1.0$, turning them into valid attention probabilities.
+    \item Multiply by $\mathbf{V}$: Assembles the final output as a convex combination of value representations.
+\end{itemize}
+
+\begin{mathbox}{A Complete Numerical Attention Calculation}
+Let us trace an exact numerical calculation for 2 tokens (dimension $d_k = 2$):
+\[
+\mathbf{Q} = \begin{bmatrix} 1.0 & 0.0 \\ 0.0 & 2.0 \end{bmatrix}, \quad
+\mathbf{K} = \begin{bmatrix} 1.0 & 1.0 \\ 0.0 & 1.0 \end{bmatrix}, \quad
+\mathbf{V} = \begin{bmatrix} 10.0 & 20.0 \\ 30.0 & 40.0 \end{bmatrix}
+\]
+Here $d_k = 2$, so $\sqrt{d_k} = \sqrt{2} \approx 1.414$.
+
+\textbf{Step 1: Compute Raw Attention Scores ($\mathbf{Q}\mathbf{K}^T$)}
+\[
+\mathbf{Q}\mathbf{K}^T = \begin{bmatrix} 1.0 & 0.0 \\ 0.0 & 2.0 \end{bmatrix} \begin{bmatrix} 1.0 & 0.0 \\ 1.0 & 1.0 \end{bmatrix} = \begin{bmatrix} 1.0 & 0.0 \\ 2.0 & 2.0 \end{bmatrix}
+\]
+
+\textbf{Step 2: Scale by $\frac{1}{\sqrt{d_k}}$}
+\[
+\mathbf{S} = \frac{\mathbf{Q}\mathbf{K}^T}{1.414} = \begin{bmatrix} 0.707 & 0.000 \\ 1.414 & 1.414 \end{bmatrix}
+\]
+
+\textbf{Step 3: Apply Row-Wise Softmax ($\mathbf{A} = \text{Softmax}(\mathbf{S})$)}
+For Row 0:
+\[
+e^{0.707} \approx 2.028, \quad e^{0.000} = 1.000 \implies \text{Sum} = 3.028
+\]
+\[
+\mathbf{A}_{0,0} = \frac{2.028}{3.028} \approx \mathbf{0.670}, \quad \mathbf{A}_{0,1} = \frac{1.000}{3.028} \approx \mathbf{0.330}
+\]
+For Row 1 (both values equal $1.414$, so equal probabilities):
+\[
+\mathbf{A}_{1,0} = \mathbf{0.500}, \quad \mathbf{A}_{1,1} = \mathbf{0.500}
+\]
+Attention weight matrix:
+\[
+\mathbf{A} = \begin{bmatrix} 0.670 & 0.330 \\ 0.500 & 0.500 \end{bmatrix}
+\]
+
+\textbf{Step 4: Multiply by Values ($\mathbf{Y} = \mathbf{A}\mathbf{V}$)}
+\begin{align*}
+\mathbf{Y}_{0} &= 0.670 \begin{bmatrix} 10.0 & 20.0 \end{bmatrix} + 0.330 \begin{bmatrix} 30.0 & 40.0 \end{bmatrix} = \begin{bmatrix} 6.70 + 9.90 & 13.40 + 13.20 \end{bmatrix} = \begin{bmatrix} \mathbf{16.60} & \mathbf{26.60} \end{bmatrix} \\
+\mathbf{Y}_{1} &= 0.500 \begin{bmatrix} 10.0 & 20.0 \end{bmatrix} + 0.500 \begin{bmatrix} 30.0 & 40.0 \end{bmatrix} = \begin{bmatrix} 5.0 + 15.0 & 10.0 + 20.0 \end{bmatrix} = \begin{bmatrix} \mathbf{20.00} & \mathbf{30.00} \end{bmatrix}
+\end{align*}
+The output vectors synthesize information from both inputs weighted by their contextual relevance!
+\end{mathbox}
+
+\section{The Complexity Problem: Spatial Attention vs. Channel Attention}
+For an image patch of size $128 \times 128$, the total number of spatial pixels is:
+\[
+N = H \times W = 128 \times 128 = 16{,}384\text{ pixels}
+\]
+Standard spatial self-attention computes an affinity matrix between every pixel and every other pixel:
+\[
+\text{Affinity Matrix Size} = N \times N = 16{,}384 \times 16{,}384 = \mathbf{268{,}435{,}456\text{ elements!}}
+\]
+At 4 bytes per float, storing this single attention matrix requires \textbf{1.07 GB of VRAM per attention head per batch item!} A 4-stage network would crash from out-of-memory errors instantly!
+
+\subsection{The Restormer Breakthrough: Transposed Attention (MDTA)}
+In Chapter 11, we will see how ECRformer solves this: instead of computing attention across the spatial pixels ($N \times N$), it computes \textbf{Transposed Attention across the feature channels} ($C \times C$, Zamir et al.~\cite{zamir2022restormer}, El-Nouby et al.~\cite{elnouby2021xcit}). Because $C \in \{32, 64, 128, 256\}$, a $256 \times 256$ matrix has only $65{,}536$ elements ($<1\text{ MB}$), reducing computational complexity from $\mathcal{O}((HW)^2)$ to linear in image area: $\mathcal{O}(C^2 HW)$!
+
+\section{Summary of Chapter 10}
+\begin{enumerate}
+    \item Convolutional receptive fields grow slowly, making them inefficient at modeling distant contextual dependencies across large clouds.
+    \item Attention computes dynamic similarity scores between queries ($Q$) and keys ($K$) to aggregate relevant values ($V$).
+    \item Scaled dot-product attention divides by $\sqrt{d_k}$ to prevent gradient saturation.
+    \item Conventional spatial self-attention scales quadratically ($\mathcal{O}((HW)^2)$), making it computationally infeasible for high-resolution satellite imagery.
+    \item Transposed cross-covariance attention computes attention across channels ($C \times C$), achieving linear spatial complexity $\mathcal{O}(C^2 HW)$.
+\end{enumerate}
+
+\section{Practice Exercises}
+\begin{enumerate}
+    \item Why is the scaling factor $\frac{1}{\sqrt{d_k}}$ necessary before applying the Softmax operation?
+    \item Calculate the memory required to store an attention matrix for a $256 \times 256$ satellite image under standard spatial self-attention.
+    \item If two key vectors $\mathbf{K}_1$ and $\mathbf{K}_2$ have identical dot products with query $\mathbf{Q}$, what will be their relative attention weights after Softmax?
+\end{enumerate}
+
+\subsection*{Solutions}
+\begin{enumerate}
+    \item For large feature dimensions $d_k$, the dot product $\sum_{i=1}^{d_k} q_i k_i$ sums many terms, growing in variance proportional to $d_k$. Without division by $\sqrt{d_k}$, extreme values push the Softmax function into saturation regions where its derivative is near zero, causing vanishing gradients.
+    \item Spatial pixels: $N = 256 \times 256 = 65{,}536$. Attention matrix: $65{,}536 \times 65{,}536 = 4{,}294{,}967{,}296$ floats. At 4 bytes/float, this requires $17.18\text{ GB}$ of GPU memory for a single matrix!
+    \item Because the Softmax exponentiates equal numerical scores ($e^s = e^s$), both keys will receive exactly identical attention weights ($50\%$ each if there are only two keys).
+\end{enumerate}

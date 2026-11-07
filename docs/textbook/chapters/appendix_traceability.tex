@@ -1,0 +1,77 @@
+\chapter{Implementation Details and Traceability Audit}
+\label{chap:appendix_traceability}
+
+\section{Component Implementation Status Matrix}
+To maintain complete scientific and engineering integrity, Table~\ref{tab:status_matrix} explicitly categorizes every architectural and experimental module according to its verified execution status in the codebase.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabularx}{\textwidth}{llp{3.5cm}X}
+\toprule
+\textbf{Category} & \textbf{Component Name} & \textbf{Source File} & \textbf{Verified Implementation Status} \\
+\midrule
+\textbf{Confirmed Active} & \texttt{CachedSEN12MSCRDataset} & \texttt{data/cache\_dataset.py} & Active in all runs; loads \texttt{.npz} arrays with on-the-fly SAR dB norm and 3-step mask softening. \\
+\textbf{Confirmed Active} & \texttt{ECRformerAdaptedModel} & \texttt{models/ecrformer\_adapted.py} & Active; 7-channel input slicing, 4-stage U-Net forward pass, and soft-mask output blend gate. \\
+\textbf{Confirmed Active} & \texttt{DecoupledEncoder} & \texttt{models/ecrformer\_model.py} & Active; independent reflection convs on SAR ($2\to 16$) and Opt+Mask ($5\to 16$) concatenating to 32 ch. \\
+\textbf{Confirmed Active} & \texttt{ECRformerBlock} & \texttt{models/module.py} & Active; dual MDTA transposed attention + MDWA multi-dilated window attention + GDFN in series. \\
+\textbf{Confirmed Active} & \texttt{ConditionalPatchGANDiscriminator} & \texttt{losses/patchgan\_loss.py} & Active in Stage 4 (\texttt{train\_ecrformer\_v4\_gan.py}); 11-channel high-pass discriminator. \\
+\textbf{Confirmed Active} & \texttt{Scale-Decoupled $L_1$} & \texttt{losses/patchgan\_loss.py} & Active in Stage 4; $1\times 1$, $4\times 4$, and $8\times 8$ pooled $L_1$ supervision + intermediate SDFL aux. \\
+\textbf{Confirmed Active} & \texttt{CloudStructurePerceptualLoss} & \texttt{losses/cloud\_structure\_loss.py} & Active in Stages 3 \& 4; VGG-16 perceptual, multi-scale signed gradients, edge correlation, and local std. \\
+\midrule
+\textbf{Implemented but Inactive} & \texttt{SpectralTextureLoss} & \texttt{losses/spectral\_texture\_loss.py} & Fully implemented; evaluated in Stage 2 (\texttt{train\_ecrformer\_v2.py}); inactive in Stage 4 sweetspot. \\
+\textbf{Implemented but Inactive} & \texttt{Full-Image Binary Blend} & \texttt{models/ecrformer\_adapted.py} & Inactive; superseded by continuous Gaussian soft-mask blending ($11\times 11, \sigma=2.0$). \\
+\midrule
+\textbf{Experimental Tested} & Opaque Cloud Core Cutout & \texttt{train\_ecrformer\_v3.py} & Tested; applies synthetic zeroing of optical cores ($p=0.65$) to strengthen radar-to-optical translation. \\
+\textbf{Experimental Tested} & $2\times$ Differential SAR LR & \texttt{train\_ecrformer\_v4\_gan.py} & Tested; doubles learning rate on \texttt{stem.branch\_0} ($2\times 10^{-4}$) to accelerate microwave convergence. \\
+\midrule
+\textbf{Proposed Future Work} & Temporal Attention (S2-TS) & Multi-date Sentinel-2 & Proposed; integrating historical multi-date time series with cross-attention for zero-radar scenarios. \\
+\textbf{Proposed Future Work} & INT8 Mobile Quantization & LiteRT export pipeline & Proposed; post-training INT8 weight and activation quantization for low-power drone inference. \\
+\bottomrule
+\end{tabularx}
+\caption{Verified status matrix of all components across the project repository.}
+\label{tab:status_matrix}
+\end{table}
+
+\section{Exact Parameter Breakdown Audit}
+Table~\ref{tab:param_audit} provides the exact parameter counts verified directly from the saved sweetspot checkpoint dictionary (\texttt{ecrformer\_sweetspot\_best/best\_model.pth}).
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabularx}{\textwidth}{llccX}
+\toprule
+\textbf{Sub-Network} & \textbf{State Dictionary Key} & \textbf{Tensors} & \textbf{Parameters} & \textbf{Role in System} \\
+\midrule
+Active Generator & \texttt{model\_state\_dict} & 277 & \textbf{3,619,070} & Active neural model executing forward inference on the GPU. \\
+EMA Shadow Weights & \texttt{ema\_state\_dict} & 277 & \textbf{3,619,070} & Temporal moving average ($\beta=0.999$) used for validation and inference. \\
+PatchGAN Discriminator & \texttt{disc\_state\_dict} & 17 & \textbf{1,260,737} & 11-channel discriminator used during adversarial training. \\
+Spectral Norm Buffers & \texttt{disc} (\texttt{\_u, \_v}) & 10 & 8,561 & Persistent singular vector buffers maintaining 1-Lipschitz continuity. \\
+\midrule
+\textbf{Total Saved Checkpoint} & \texttt{best\_model.pth} & 581 & \textbf{8,507,438} & Complete state dictionary archived on disk ($\approx 34.3\text{ MB}$). \\
+\bottomrule
+\end{tabularx}
+\caption{Verified parameter audit of \texttt{best\_model.pth}. The active generator contains 3.62 million parameters; previous reports of $\approx 8.3\text{M}$ parameters resulted from summing the generator, EMA copy, and discriminator together.}
+\label{tab:param_audit}
+\end{table}
+
+\section{Detailed Parameter Counts of Generator Sub-Modules}
+\begin{itemize}
+    \item \textbf{Decoupled Input Stem:} 5,520 parameters ($0.15\%$).
+    \item \textbf{Encoder Stage 0 ($C=32$):} 33,962 parameters ($0.94\%$).
+    \item \textbf{Downsampler 0 ($32 \to 64$):} 10,798 parameters ($0.30\%$).
+    \item \textbf{Encoder Stage 1 ($C=64$):} 125,420 parameters ($3.47\%$).
+    \item \textbf{Downsampler 1 ($64 \to 128$):} 32,494 parameters ($0.90\%$).
+    \item \textbf{Encoder Stage 2 ($C=128$):} 241,641 parameters ($6.68\%$).
+    \item \textbf{Downsampler 2 ($128 \to 256$):} 64,522 parameters ($1.78\%$).
+    \item \textbf{Restormer Bottleneck ($C=256$):} 672,518 parameters ($18.58\%$).
+    \item \textbf{Upsampler 0 ($256 \to 128$):} 1,189,390 parameters ($32.86\%$).
+    \item \textbf{Decoder Stage 0 ($C=128$):} 536,681 parameters ($14.83\%$).
+    \item \textbf{Upsampler 1 ($128 \to 64$):} 307,854 parameters ($8.51\%$).
+    \item \textbf{Decoder Stage 1 ($C=64$):} 199,212 parameters ($5.50\%$).
+    \item \textbf{Upsampler 2 ($64 \to 32$):} 54,026 parameters ($1.49\%$).
+    \item \textbf{Decoder Stage 2 ($C=64$):} 125,420 parameters ($3.47\%$).
+    \item \textbf{Final Reconstruction Head:} 2,308 parameters ($0.06\%$).
+    \item \textbf{Auxiliary Heads (\texttt{down\_proj}, \texttt{up\_proj}):} 17,304 parameters ($0.48\%$).
+    \item \textbf{Total Generator Trainable Parameters:} \textbf{3,619,070 parameters}.
+\end{itemize}

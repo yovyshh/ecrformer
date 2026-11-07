@@ -1,0 +1,71 @@
+\chapter{Inference and Final Satellite Image Reconstruction}
+\label{chap:ch17}
+
+\section{Transitioning from Training to Production Deployment}
+Inference is the phase where our trained neural network processes real-world satellite acquisitions to produce cloud-free products for downstream consumers.
+
+During inference, computational requirements and model behaviors change fundamentally:
+\begin{enumerate}
+    \item \textbf{Evaluation Mode (\texttt{model.eval()}):} Disables training-specific operations such as dropout and freezes running statistics in normalization layers.
+    \item \textbf{Disabling Autograd (\texttt{with torch.no\_grad()}):} Instructs PyTorch not to build computational DAGs or store intermediate activation tensors, reducing memory consumption by over $75\%$ and dramatically increasing processing speed.
+    \item \textbf{Deploying EMA Weights:} The raw training weights fluctuate due to mini-batch noise. At inference time, we always load \texttt{checkpoint['ema\_state\_dict']}, ensuring maximum reconstruction stability and texture sharpness.
+\end{enumerate}
+
+\section{The Output Reconstruction Equation}
+The direct output of the generator's final convolutional layer is $\mathbf{P}_{\text{dir}} \in \mathbb{R}^{B \times 4 \times H \times W}$. The final reconstructed product $\hat{\mathbf{Y}}$ is assembled via the soft-mask blend gate:
+\begin{equation}
+\hat{\mathbf{Y}} = (1.0 - \mathbf{M}) \odot \mathbf{X}_{S2} + \mathbf{M} \odot \mathbf{P}_{\text{dir}}
+\end{equation}
+
+\subsection{Why Pure Neural Outputs are Undesirable on Clear Terrain}
+A naive approach would be to discard the original optical image entirely and use the generator's prediction $\mathbf{P}_{\text{dir}}$ across the entire image. However, even the best generative model introduces minor radiometric shifts ($\approx 1\text{--}3\%$ reflectance error). 
+
+On clear terrain, the original optical image is already pristine truth! Replacing genuine clear observations with synthetic neural approximations degrades scientific measurement accuracy. The soft-blend gate guarantees that clear ground surface measurements are preserved with 100\% optical truth.
+
+\section{Sliding Window Inference for Large-Scale Satellite Scenes}
+A complete Sentinel-2 tile covers $100\text{ km} \times 100\text{ km}$, containing a massive grid of $10{,}980 \times 10{,}980$ pixels ($\approx 120\text{ million pixels}$ across 4 bands).
+
+Passing a $10{,}980 \times 10{,}980$ tensor directly into a GPU would require over $100\text{ GB}$ of VRAM, exceeding hardware limits. Large scenes are reconstructed using \textbf{overlapping sliding windows}:
+\begin{enumerate}
+    \item The large scene is partitioned into $128 \times 128$ (or $256 \times 256$) patches with a $50\%$ spatial overlap (stride $s = 64$).
+    \item Each patch is processed through the model independently on the GPU.
+    \item Patches are stitched back into the global canvas using a \textbf{2D separable spline or Gaussian blending window}:
+    \begin{equation}
+    w(x, y) = \sin^2\left(\frac{\pi x}{W}\right) \cdot \sin^2\left(\frac{\pi y}{H}\right)
+    \end{equation}
+    The window weight is $1.0$ at the patch center and smoothly tapers to $0.0$ at the perimeter, completely eliminating boundary tiling seams in the final stitched mosaic!
+\end{enumerate}
+
+\section{Radiometric Post-Processing and False-Color Visualization}
+The model outputs normalized surface reflectance values in $[0.0, 1.0]$. For GIS software and human inspection:
+\begin{itemize}
+    \item \textbf{Exporting to GeoTIFF:} Reflectance is scaled back to standard 16-bit integers:
+    \begin{equation}
+    \text{DN} = \text{clip}\big(\hat{\mathbf{Y}} \times 10000.0, 0, 10000\big)
+    \end{equation}
+    \item \textbf{True-Color RGB Visualization:} In raw optical reflectance, water and dark soils cluster near $0.02\text{--}0.15$. Displaying raw values directly on an 8-bit monitor ($[0, 255]$) produces a dark, muddy image. A standard $2.5\times$ linear contrast stretch or 2\%--98\% cumulative percentile clip maps natural reflectance to vibrant display colors.
+    \item \textbf{False-Color NIR Composite (B08-B04-B03):} By assigning NIR to the Red display channel, Red to Green, and Green to Blue, dense photosynthetic vegetation appears bright crimson red, making cloud-cleared agricultural boundaries jump out clearly.
+\end{itemize}
+
+\section{Summary of Chapter 17}
+\begin{enumerate}
+    \item Inference disables dropout and gradient graphs via \texttt{model.eval()} and \texttt{torch.no\_grad()}.
+    \item Loading EMA weights provides optimal reconstruction fidelity and texture stability.
+    \item Soft-mask blending preserves original optical pixels over clear terrain while seamlessly inserting reconstructed patches under clouds.
+    \item Massive $10{,}000 \times 10{,}000$ tiles are processed via overlapping sliding windows with cosine/spline blending weights.
+    \item Outputs are converted back to 16-bit integer GeoTIFFs or contrast-stretched for true-color and NIR false-color visualization.
+\end{enumerate}
+
+\section{Practice Exercises}
+\begin{enumerate}
+    \item Why does running inference inside a \texttt{with torch.no\_grad():} block drastically reduce GPU VRAM usage?
+    \item If two overlapping sliding-window patches meet at an edge without smooth window weighting, what visual defect occurs?
+    \item Convert a predicted Near-Infrared reflectance value of $\hat{\mathbf{Y}} = 0.428$ back into a 16-bit Sentinel-2 Digital Number (DN).
+\end{enumerate}
+
+\subsection*{Solutions}
+\begin{enumerate}
+    \item During training, PyTorch stores all intermediate activation tensors at every layer so they can be referenced when computing derivatives during the backward pass. \texttt{torch.no\_grad()} disables this caching entirely, freeing intermediate memory immediately after each layer completes.
+    \item A visible grid of sharp horizontal and vertical seam lines appears across the mosaic where neighboring patch edges meet with slight contrast differences.
+    \item $\text{DN} = 0.428 \times 10000.0 = \mathbf{4{,}280}$.
+\end{enumerate}
