@@ -1,0 +1,30 @@
+{
+  "model_name": "ECRformer-Lite Baseline (Epoch 30)",
+  "architecture": "ECRformerAdaptedModel",
+  "parameters": {
+    "features_start": 32,
+    "num_blocks": [
+      2,
+      2,
+      1,
+      1
+    ],
+    "num_refine": 0,
+    "bottle_neck": "tsa",
+    "cbam": "1ca2+1sa2",
+    "mask_blend": true,
+    "head_init": "mean_prior"
+  },
+  "training_details": {
+    "epochs": 30,
+    "patch_size": 128,
+    "loss_functions": [
+      "L1",
+      "SDFL (Scale-Decoupled Frequency Loss)"
+    ],
+    "has_patchgan": false,
+    "has_opaque_cutout": false,
+    "best_val_psnr": 30.19822755228379,
+    "best_val_ssim": 0.8746639411072982
+  }
+}

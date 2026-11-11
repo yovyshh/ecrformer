@@ -3,7 +3,7 @@
 import React, { useMemo } from 'react';
 import { useAppStore } from '@/lib/store';
 import { Sample } from '@/lib/types';
-import { CheckCircle2, ArrowUpDown, Filter, X } from 'lucide-react';
+import { CheckCircle2, ArrowUpDown, Filter, X, AlertCircle, RotateCw } from 'lucide-react';
 
 interface GalleryRailProps {
   isMobile?: boolean;
@@ -17,6 +17,9 @@ export const GalleryRail: React.FC<GalleryRailProps> = ({ isMobile = false }) =>
     filterCoverage,
     sortBy,
     isMobileGalleryOpen,
+    isLoadingSamples,
+    errorMessage,
+    loadInitialSamples,
     selectSample,
     setFilterCoverage,
     setSortBy,
@@ -124,7 +127,7 @@ export const GalleryRail: React.FC<GalleryRailProps> = ({ isMobile = false }) =>
           </span>
           <select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
+            onChange={(e) => setSortBy(e.target.value as 'coverage_asc' | 'coverage_desc' | 'name')}
             className="rounded border border-[#243042] bg-[#141b24] px-2 py-1 font-mono text-[11px] text-slate-200 focus:border-[#00f0ff] focus:outline-none"
           >
             <option value="coverage_asc">Cloud Coverage (Asc)</option>
@@ -136,81 +139,108 @@ export const GalleryRail: React.FC<GalleryRailProps> = ({ isMobile = false }) =>
 
       {/* 2-column independently scrollable grid */}
       <div className="flex-1 min-h-0 overflow-y-auto p-2.5 sm:p-3">
-        <div className="grid grid-cols-2 gap-2.5">
-          {filteredAndSortedSamples.map((sample: Sample) => {
-            const isSelected = sample.id === selectedId;
-            const hasResult = Boolean(resultsMap[sample.id]);
-            const coverage = getCoverageBadge(sample.cloudCoverage);
-
-            return (
-              <button
-                key={sample.id}
-                onClick={() => {
-                  selectSample(sample.id);
-                  if (isMobile) setMobileGalleryOpen(false);
-                }}
-                className={`group relative flex flex-col overflow-hidden rounded border text-left transition-all ${isSelected
-                    ? 'border-[#00f0ff] bg-[#162232] shadow-[0_0_12px_rgba(0,240,255,0.2)] ring-1 ring-[#00f0ff]'
-                    : 'border-[#243042] bg-[#131923] hover:border-slate-600 hover:bg-[#18212e]'
-                  }`}
+        {isLoadingSamples ? (
+          <div className="grid grid-cols-2 gap-2.5">
+            {[...Array(6)].map((_, i) => (
+              <div
+                key={i}
+                className="flex flex-col overflow-hidden rounded border border-[#243042] bg-[#131923] p-1.5 animate-pulse"
               >
-                {/* Thumbnail using plain <img> tag */}
-                <div className="relative aspect-square w-full overflow-hidden bg-black/60">
-                  <img
-                    src={sample.previews.cloudy}
-                    alt={sample.filename}
-                    loading="lazy"
-                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                  />
+                <div className="aspect-square w-full rounded bg-slate-800/60" />
+                <div className="mt-2 h-2.5 w-3/4 rounded bg-slate-800" />
+                <div className="mt-1.5 h-1 w-full rounded bg-slate-800" />
+              </div>
+            ))}
+          </div>
+        ) : errorMessage && samples.length === 0 ? (
+          <div className="flex flex-col items-center justify-center p-4 text-center">
+            <AlertCircle className="mb-2 h-7 w-7 text-rose-400" />
+            <p className="mb-3 font-mono text-[11px] leading-relaxed text-rose-300">
+              {errorMessage}
+            </p>
+            <button
+              onClick={() => loadInitialSamples()}
+              className="flex items-center gap-1.5 rounded border border-[#00f0ff] bg-[#00f0ff]/10 px-3 py-1.5 font-mono text-xs font-semibold text-[#00f0ff] transition hover:bg-[#00f0ff]/20 active:scale-95"
+            >
+              <RotateCw className="h-3.5 w-3.5" />
+              <span>Retry</span>
+            </button>
+          </div>
+        ) : filteredAndSortedSamples.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center text-slate-500">
+            <p className="font-mono text-xs">No satellite scenes match criteria.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2.5">
+            {filteredAndSortedSamples.map((sample: Sample) => {
+              const isSelected = sample.id === selectedId;
+              const hasResult = Boolean(resultsMap[sample.id]);
+              const coverage = getCoverageBadge(sample.cloudCoverage);
 
-                  {/* Coverage Badge */}
-                  <div className="absolute right-1.5 top-1.5 z-10">
-                    <span
-                      className={`inline-block rounded border px-1.5 py-0.5 font-mono text-[9px] font-semibold tabular-nums shadow-sm ${coverage.badgeClass}`}
-                    >
-                      {coverage.label}
-                    </span>
-                  </div>
-
-                  {/* Check dot if processed */}
-                  {hasResult && (
-                    <div
-                      className="absolute left-1.5 top-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-950/90 text-emerald-400 ring-1 ring-emerald-500/50"
-                      title="Removal processed & cached"
-                    >
-                      <CheckCircle2 className="h-3 w-3" />
-                    </div>
-                  )}
-
-                  {/* Dimension tag */}
-                  <div className="absolute bottom-1 left-1.5 z-10">
-                    <span className="rounded bg-black/70 px-1 py-0.2 font-mono text-[8px] text-slate-400 backdrop-blur-xs">
-                      512×512
-                    </span>
-                  </div>
-                </div>
-
-                {/* Info & thin coverage bar */}
-                <div className="flex flex-col p-2">
-                  <span
-                    className="truncate font-mono text-[10px] text-slate-300"
-                    title={sample.filename}
-                  >
-                    {sample.filename}
-                  </span>
-
-                  {/* Thin coverage bar */}
-                  <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-slate-800">
-                    <div
-                      className={`h-full ${coverage.barClass}`}
-                      style={{ width: `${sample.cloudCoverage}%` }}
+              return (
+                <button
+                  key={sample.id}
+                  onClick={() => {
+                    selectSample(sample.id);
+                    if (isMobile) setMobileGalleryOpen(false);
+                  }}
+                  className={`group relative flex flex-col overflow-hidden rounded border text-left transition-all ${
+                    isSelected
+                      ? 'border-[#00f0ff] bg-[#162232] shadow-[0_0_12px_rgba(0,240,255,0.2)] ring-1 ring-[#00f0ff]'
+                      : 'border-[#243042] bg-[#131923] hover:border-slate-600 hover:bg-[#18212e]'
+                  }`}
+                >
+                  {/* Thumbnail using plain <img> tag */}
+                  <div className="relative aspect-square w-full overflow-hidden bg-black/60">
+                    <img
+                      src={sample.previews.cloudy}
+                      alt={sample.filename}
+                      loading="lazy"
+                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                     />
+
+                    {/* Coverage Badge */}
+                    <div className="absolute right-1.5 top-1.5 z-10">
+                      <span
+                        className={`inline-block rounded border px-1.5 py-0.5 font-mono text-[9px] font-semibold tabular-nums shadow-sm ${coverage.badgeClass}`}
+                      >
+                        {coverage.label}
+                      </span>
+                    </div>
+
+                    {/* Check dot if processed */}
+                    {hasResult && (
+                      <div
+                        className="absolute left-1.5 top-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-950/90 text-emerald-400 ring-1 ring-emerald-500/50"
+                        title="Removal processed & cached"
+                      >
+                        <CheckCircle2 className="h-3 w-3" />
+                      </div>
+                    )}
                   </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
+
+                  {/* Info & thin coverage bar */}
+                  <div className="flex flex-col p-2">
+                    <span
+                      className="truncate block font-mono text-[10px] text-slate-300"
+                      title={sample.filename}
+                    >
+                      {sample.filename}
+                    </span>
+
+                    {/* Thin coverage bar */}
+                    <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-slate-800">
+                      <div
+                        className={`h-full ${coverage.barClass}`}
+                        style={{ width: `${sample.cloudCoverage}%` }}
+                      />
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

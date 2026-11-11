@@ -29,7 +29,6 @@ import {
   TrendingDown,
   Eye,
   Award,
-  Layers,
   ChevronRight,
 } from 'lucide-react';
 
@@ -455,10 +454,10 @@ export const ResultsSection: React.FC = () => {
                                 </span>
                               </td>
                               <td className="py-2.5 text-center text-slate-400 tabular-nums">
-                                {leftVal}
+                                {leftVal}{key === 'sam' ? '°' : ''}
                               </td>
                               <td className="py-2.5 text-center font-semibold text-slate-200 tabular-nums">
-                                {rightVal}
+                                {rightVal}{key === 'sam' ? '°' : ''}
                               </td>
                               <td
                                 className={`py-2.5 text-right font-semibold tabular-nums ${
@@ -466,7 +465,7 @@ export const ResultsSection: React.FC = () => {
                                 }`}
                               >
                                 <span className="inline-flex items-center gap-1 justify-end">
-                                  {delta.diffText}
+                                  {delta.diffText}{key === 'sam' ? '°' : ''}
                                   {delta.arrow === 'up' && (
                                     <TrendingUp className="h-3 w-3" />
                                   )}
@@ -557,7 +556,7 @@ export const ResultsSection: React.FC = () => {
 
                         {/* Main Metric Value */}
                         <span className="font-mono text-base font-bold text-slate-100 tabular-nums">
-                          {curVal}
+                          {curVal}{key === 'sam' ? '°' : ''}
                         </span>
                       </div>
 
@@ -572,7 +571,7 @@ export const ResultsSection: React.FC = () => {
                                 : 'text-rose-400'
                             }`}
                           >
-                            {deltaVsCloudy.diffText}
+                            {deltaVsCloudy.diffText}{key === 'sam' ? '°' : ''}
                           </span>
                         </span>
 
@@ -586,7 +585,7 @@ export const ResultsSection: React.FC = () => {
                                   : 'text-rose-400'
                               }`}
                             >
-                              {deltaVsBaseline.diffText}
+                              {deltaVsBaseline.diffText}{key === 'sam' ? '°' : ''}
                             </span>
                           </span>
                         )}
@@ -644,7 +643,7 @@ export const ResultsSection: React.FC = () => {
               <div className="flex justify-between">
                 <span className="text-slate-500">SAM:</span>
                 <span className="font-semibold text-slate-300 tabular-nums">
-                  {cachedResult.metrics.cloudy.sam}
+                  {cachedResult.metrics.cloudy.sam}°
                 </span>
               </div>
               <div className="flex justify-between">
@@ -694,7 +693,7 @@ export const ResultsSection: React.FC = () => {
               <div className="flex justify-between">
                 <span className="text-slate-500">SAM:</span>
                 <span className="font-semibold text-slate-200 tabular-nums">
-                  {cachedResult.metrics.baseline.sam}
+                  {cachedResult.metrics.baseline.sam}°
                 </span>
               </div>
               <div className="flex justify-between">
@@ -746,7 +745,7 @@ export const ResultsSection: React.FC = () => {
                   <div key={k} className="flex justify-between">
                     <span className="text-slate-500 uppercase">{k}:</span>
                     <span className="font-semibold text-slate-200 tabular-nums">
-                      {val}{' '}
+                      {val}{k === 'sam' ? '°' : ''}{' '}
                       <span
                         className={`text-[9px] ${
                           deltaVsBase.isImproved
@@ -754,7 +753,7 @@ export const ResultsSection: React.FC = () => {
                             : 'text-rose-400'
                         }`}
                       >
-                        ({deltaVsBase.diffText})
+                        ({deltaVsBase.diffText}{k === 'sam' ? '°' : ''})
                       </span>
                     </span>
                   </div>
@@ -806,9 +805,9 @@ export const ResultsSection: React.FC = () => {
                       {k}:
                     </span>
                     <span className="font-bold text-[#00f0ff] tabular-nums">
-                      {val}{' '}
+                      {val}{k === 'sam' ? '°' : ''}{' '}
                       <span className="text-[9px] text-emerald-400">
-                        ({deltaVsBase.diffText})
+                        ({deltaVsBase.diffText}{k === 'sam' ? '°' : ''})
                       </span>
                     </span>
                   </div>

@@ -9,8 +9,7 @@ import { InspectSection } from '@/components/InspectSection';
 import { ProcessingSection } from '@/components/ProcessingSection';
 import { ResultsSection } from '@/components/ResultsSection';
 import { ShortcutsModal } from '@/components/ShortcutsModal';
-import { StageKey } from '@/lib/types';
-import { Menu, Terminal, Satellite } from 'lucide-react';
+import { Menu, Terminal } from 'lucide-react';
 
 function SatelliteMissionControlApp() {
   const searchParams = useSearchParams();
@@ -18,9 +17,6 @@ function SatelliteMissionControlApp() {
 
   const {
     samples,
-    selectedId,
-    statusMap,
-    isLoadingSamples,
     loadInitialSamples,
     navigateSample,
     runRemovalForCurrent,
@@ -103,23 +99,6 @@ function SatelliteMissionControlApp() {
     toggleCompareMode,
     setMobileGalleryOpen,
   ]);
-
-  if (isLoadingSamples && samples.length === 0) {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-[#0b0f15] text-[#00f0ff]">
-        <div className="relative flex h-16 w-16 items-center justify-center rounded-lg border border-[#00f0ff]/30 bg-[#00f0ff]/10">
-          <Satellite className="h-8 w-8 animate-pulse text-[#00f0ff]" />
-          <span className="absolute -right-1 -top-1 flex h-3 w-3">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#00f0ff] opacity-75" />
-            <span className="relative inline-flex h-3 w-3 rounded-full bg-[#00f0ff]" />
-          </span>
-        </div>
-        <p className="mt-4 font-mono text-xs uppercase tracking-widest text-slate-300">
-          Initializing Satellite Telemetry Stream...
-        </p>
-      </div>
-    );
-  }
 
   return (
     <div className="flex h-screen max-h-screen flex-col overflow-hidden bg-[#0b0f15] text-slate-200">

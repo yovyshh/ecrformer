@@ -26,7 +26,9 @@ export const InspectSection: React.FC = () => {
     selectedId,
     statusMap,
     inspectExpanded,
-    selectSample,
+    isLoadingSamples,
+    errorMessage,
+    loadInitialSamples,
     navigateSample,
     runRemovalForCurrent,
     setInspectExpanded,
@@ -36,7 +38,6 @@ export const InspectSection: React.FC = () => {
   const currentStatus = selectedId ? statusMap[selectedId] || 'idle' : 'idle';
   const isRunning = currentStatus === 'running';
   const isDone = currentStatus === 'done';
-  const isError = currentStatus === 'error';
 
   // Refs for linked zoom/pan across 3 panels
   const cloudyRef = useRef<ReactZoomPanPinchRef>(null);
@@ -95,9 +96,31 @@ export const InspectSection: React.FC = () => {
     setCurrentZoomScale(1);
   };
 
+  if (isLoadingSamples && !currentSample) {
+    return (
+      <div className="rounded border border-[#243042] bg-[#131923] p-8 text-center font-mono text-xs text-slate-400 animate-pulse">
+        Loading satellite scene telemetry...
+      </div>
+    );
+  }
+
+  if (errorMessage && samples.length === 0) {
+    return (
+      <div className="rounded border border-rose-500/40 bg-rose-950/20 p-6 text-center">
+        <p className="mb-3 font-mono text-xs leading-relaxed text-rose-300">{errorMessage}</p>
+        <button
+          onClick={() => loadInitialSamples()}
+          className="rounded border border-[#00f0ff] bg-[#00f0ff]/10 px-3.5 py-1.5 font-mono text-xs font-semibold text-[#00f0ff] transition hover:bg-[#00f0ff]/20 active:scale-95"
+        >
+          Retry Connection
+        </button>
+      </div>
+    );
+  }
+
   if (!currentSample) {
     return (
-      <div className="rounded border border-[#243042] bg-[#131923] p-6 text-center text-slate-400">
+      <div className="rounded border border-[#243042] bg-[#131923] p-6 text-center text-slate-400 font-mono text-xs">
         No satellite scene selected.
       </div>
     );
@@ -120,7 +143,10 @@ export const InspectSection: React.FC = () => {
               1. Inspect Telemetry
             </span>
             <div className="h-3 w-px bg-slate-700" />
-            <span className="font-mono text-xs font-medium text-[#00f0ff]">
+            <span
+              className="truncate max-w-[200px] sm:max-w-xs font-mono text-xs font-medium text-[#00f0ff]"
+              title={currentSample.filename}
+            >
               {currentSample.filename}
             </span>
             <span
@@ -164,7 +190,10 @@ export const InspectSection: React.FC = () => {
           <span className="rounded bg-[#1a2332] px-2 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-[#00f0ff]">
             Stage 1: Pre-Inference Inspection
           </span>
-          <h2 className="font-mono text-xs font-semibold text-slate-200 sm:text-sm">
+          <h2
+            className="truncate max-w-[200px] sm:max-w-md font-mono text-xs font-semibold text-slate-200 sm:text-sm"
+            title={currentSample.filename}
+          >
             {currentSample.filename}
           </h2>
           <span
@@ -366,7 +395,7 @@ export const InspectSection: React.FC = () => {
           }`}
         >
           <Sparkles className={`h-4 w-4 ${isRunning ? 'animate-spin' : ''}`} />
-          <span>{isRunning ? 'Executing Removal Pipeline...' : 'Remove Clouds'}</span>
+          <span>{isRunning ? 'Running the model...' : 'Remove Clouds'}</span>
         </button>
       </div>
     </section>

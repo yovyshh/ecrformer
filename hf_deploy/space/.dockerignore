@@ -1,0 +1,15 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv
+venv
+ENV
+*.pt
+*.pth
+*.npz
+.git
+.gitignore
+.dockerignore
+

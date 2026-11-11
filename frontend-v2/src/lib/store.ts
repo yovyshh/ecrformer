@@ -8,7 +8,6 @@ interface State {
   statusMap: Record<string, ProcessStatus>;
   resultsMap: Record<string, Result>;
   processingDurationMap: Record<string, number>;
-  activeStepIndex: number; // 0: Baseline, 1: Sharpened, 2: Final
   activeStage: StageKey;
   isCompareMode: boolean;
   compareLeft: StageKey;
@@ -68,7 +67,6 @@ export const useAppStore = create<State & Actions>((set, get) => ({
   statusMap: {},
   resultsMap: {},
   processingDurationMap: {},
-  activeStepIndex: 0,
   activeStage: 'final',
   isCompareMode: false,
   compareLeft: 'cloudy',
@@ -85,7 +83,7 @@ export const useAppStore = create<State & Actions>((set, get) => ({
 
   loadInitialSamples: async (deepLinkId?: string | null) => {
     try {
-      set({ isLoadingSamples: true });
+      set({ isLoadingSamples: true, errorMessage: null });
       const samples = await getSamples();
       
       let targetId = samples[0]?.id ?? null;
@@ -108,10 +106,12 @@ export const useAppStore = create<State & Actions>((set, get) => ({
         if (targetIndex > 0) prefetchPreviews(samples[targetIndex - 1]);
         if (targetIndex < samples.length - 1) prefetchPreviews(samples[targetIndex + 1]);
       }
-    } catch {
+    } catch (err: unknown) {
       set({
         isLoadingSamples: false,
-        errorMessage: 'Failed to initialize satellite scene telemetry.',
+        errorMessage:
+          (err instanceof Error && err.message) ||
+          "Can't reach the model server. Start it with hf_deploy/local/run_backend (see hf_deploy/local/LOCAL_SETUP.md) and check BACKEND_URL.",
       });
     }
   },
@@ -129,7 +129,6 @@ export const useAppStore = create<State & Actions>((set, get) => ({
       inspectExpanded: true,
       activeStage: 'final',
       isCompareMode: false,
-      activeStepIndex: 0,
       errorMessage: null,
       statusMap: {
         ...state.statusMap,
@@ -179,25 +178,12 @@ export const useAppStore = create<State & Actions>((set, get) => ({
     set((state) => ({
       statusMap: { ...state.statusMap, [selectedId]: 'running' },
       inspectExpanded: false,
-      activeStepIndex: 0,
       errorMessage: null,
     }));
 
-    // Multi-stage stepper animation timer
-    const stepInterval = setInterval(() => {
-      set((state) => {
-        if (state.statusMap[selectedId] !== 'running') {
-          clearInterval(stepInterval);
-          return state;
-        }
-        const nextStep = Math.min(2, state.activeStepIndex + 1);
-        return { activeStepIndex: nextStep };
-      });
-    }, 1100);
-
     try {
-      const result = await runRemoval(selectedId);
-      clearInterval(stepInterval);
+      const minWait = new Promise((resolve) => setTimeout(resolve, 800));
+      const [result] = await Promise.all([runRemoval(selectedId), minWait]);
 
       const endTime = performance.now();
       const durationSec = Math.round(((endTime - startTime) / 1000) * 10) / 10;
@@ -220,17 +206,17 @@ export const useAppStore = create<State & Actions>((set, get) => ({
           [selectedId]: true,
         },
         activeStage: 'final',
-        activeStepIndex: 2,
       }));
-    } catch {
-      clearInterval(stepInterval);
+    } catch (err: unknown) {
       set((state) => ({
         statusMap: {
           ...state.statusMap,
           [selectedId]: 'error',
         },
         inspectExpanded: true,
-        errorMessage: 'Removal pipeline timed out or encountered an inference failure.',
+        errorMessage:
+          (err instanceof Error && err.message) ||
+          "Can't reach the model server. Start it with hf_deploy/local/run_backend (see hf_deploy/local/LOCAL_SETUP.md) and check BACKEND_URL.",
       }));
     }
   },

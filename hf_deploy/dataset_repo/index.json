@@ -1,0 +1,432 @@
+[
+  {
+    "id": "dense_100pct",
+    "filename": "dense_100pct",
+    "cloudCoverage": 100,
+    "previews": {
+      "cloudy": "previews/dense_100pct_cloudy.png",
+      "sar": "previews/dense_100pct_sar.png",
+      "mask": "previews/dense_100pct_mask.png"
+    }
+  },
+  {
+    "id": "hazy_70pct",
+    "filename": "hazy_70pct",
+    "cloudCoverage": 70,
+    "previews": {
+      "cloudy": "previews/hazy_70pct_cloudy.png",
+      "sar": "previews/hazy_70pct_sar.png",
+      "mask": "previews/hazy_70pct_mask.png"
+    }
+  },
+  {
+    "id": "moderate_35pct",
+    "filename": "moderate_35pct",
+    "cloudCoverage": 35,
+    "previews": {
+      "cloudy": "previews/moderate_35pct_cloudy.png",
+      "sar": "previews/moderate_35pct_sar.png",
+      "mask": "previews/moderate_35pct_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_22_p184",
+    "filename": "ROIs1970_fall_s2_22_p184",
+    "cloudCoverage": 58,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_22_p184_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_22_p184_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_22_p184_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_22_p300",
+    "filename": "ROIs1970_fall_s2_22_p300",
+    "cloudCoverage": 8,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_22_p300_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_22_p300_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_22_p300_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_22_p708",
+    "filename": "ROIs1970_fall_s2_22_p708",
+    "cloudCoverage": 38,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_22_p708_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_22_p708_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_22_p708_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_22_p784",
+    "filename": "ROIs1970_fall_s2_22_p784",
+    "cloudCoverage": 100,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_22_p784_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_22_p784_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_22_p784_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_40_p444",
+    "filename": "ROIs1970_fall_s2_40_p444",
+    "cloudCoverage": 4,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_40_p444_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_40_p444_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_40_p444_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_40_p648",
+    "filename": "ROIs1970_fall_s2_40_p648",
+    "cloudCoverage": 93,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_40_p648_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_40_p648_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_40_p648_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_40_p652",
+    "filename": "ROIs1970_fall_s2_40_p652",
+    "cloudCoverage": 37,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_40_p652_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_40_p652_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_40_p652_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_40_p664",
+    "filename": "ROIs1970_fall_s2_40_p664",
+    "cloudCoverage": 55,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_40_p664_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_40_p664_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_40_p664_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_65_p100",
+    "filename": "ROIs1970_fall_s2_65_p100",
+    "cloudCoverage": 0,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_65_p100_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_65_p100_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_65_p100_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_65_p132",
+    "filename": "ROIs1970_fall_s2_65_p132",
+    "cloudCoverage": 56,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_65_p132_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_65_p132_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_65_p132_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_65_p408",
+    "filename": "ROIs1970_fall_s2_65_p408",
+    "cloudCoverage": 0,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_65_p408_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_65_p408_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_65_p408_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_65_p832",
+    "filename": "ROIs1970_fall_s2_65_p832",
+    "cloudCoverage": 100,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_65_p832_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_65_p832_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_65_p832_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_119_p84",
+    "filename": "ROIs1970_fall_s2_119_p84",
+    "cloudCoverage": 100,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_119_p84_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_119_p84_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_119_p84_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_119_p104",
+    "filename": "ROIs1970_fall_s2_119_p104",
+    "cloudCoverage": 100,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_119_p104_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_119_p104_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_119_p104_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_119_p328",
+    "filename": "ROIs1970_fall_s2_119_p328",
+    "cloudCoverage": 65,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_119_p328_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_119_p328_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_119_p328_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_119_p852",
+    "filename": "ROIs1970_fall_s2_119_p852",
+    "cloudCoverage": 0,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_119_p852_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_119_p852_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_119_p852_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_134_p204",
+    "filename": "ROIs1970_fall_s2_134_p204",
+    "cloudCoverage": 83,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_134_p204_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_134_p204_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_134_p204_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_134_p748",
+    "filename": "ROIs1970_fall_s2_134_p748",
+    "cloudCoverage": 34,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_134_p748_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_134_p748_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_134_p748_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_134_p804",
+    "filename": "ROIs1970_fall_s2_134_p804",
+    "cloudCoverage": 0,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_134_p804_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_134_p804_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_134_p804_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_134_p816",
+    "filename": "ROIs1970_fall_s2_134_p816",
+    "cloudCoverage": 100,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_134_p816_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_134_p816_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_134_p816_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_139_p72",
+    "filename": "ROIs1970_fall_s2_139_p72",
+    "cloudCoverage": 95,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_139_p72_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_139_p72_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_139_p72_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_139_p80",
+    "filename": "ROIs1970_fall_s2_139_p80",
+    "cloudCoverage": 93,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_139_p80_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_139_p80_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_139_p80_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_139_p104",
+    "filename": "ROIs1970_fall_s2_139_p104",
+    "cloudCoverage": 99,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_139_p104_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_139_p104_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_139_p104_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_139_p124",
+    "filename": "ROIs1970_fall_s2_139_p124",
+    "cloudCoverage": 83,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_139_p124_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_139_p124_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_139_p124_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_139_p152",
+    "filename": "ROIs1970_fall_s2_139_p152",
+    "cloudCoverage": 74,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_139_p152_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_139_p152_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_139_p152_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_139_p228",
+    "filename": "ROIs1970_fall_s2_139_p228",
+    "cloudCoverage": 87,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_139_p228_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_139_p228_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_139_p228_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_139_p236",
+    "filename": "ROIs1970_fall_s2_139_p236",
+    "cloudCoverage": 86,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_139_p236_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_139_p236_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_139_p236_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_139_p268",
+    "filename": "ROIs1970_fall_s2_139_p268",
+    "cloudCoverage": 81,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_139_p268_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_139_p268_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_139_p268_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_139_p364",
+    "filename": "ROIs1970_fall_s2_139_p364",
+    "cloudCoverage": 78,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_139_p364_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_139_p364_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_139_p364_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_139_p376",
+    "filename": "ROIs1970_fall_s2_139_p376",
+    "cloudCoverage": 90,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_139_p376_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_139_p376_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_139_p376_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_139_p384",
+    "filename": "ROIs1970_fall_s2_139_p384",
+    "cloudCoverage": 59,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_139_p384_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_139_p384_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_139_p384_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_139_p388",
+    "filename": "ROIs1970_fall_s2_139_p388",
+    "cloudCoverage": 68,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_139_p388_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_139_p388_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_139_p388_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_139_p456",
+    "filename": "ROIs1970_fall_s2_139_p456",
+    "cloudCoverage": 76,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_139_p456_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_139_p456_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_139_p456_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_139_p468",
+    "filename": "ROIs1970_fall_s2_139_p468",
+    "cloudCoverage": 92,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_139_p468_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_139_p468_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_139_p468_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_139_p552",
+    "filename": "ROIs1970_fall_s2_139_p552",
+    "cloudCoverage": 30,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_139_p552_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_139_p552_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_139_p552_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_139_p556",
+    "filename": "ROIs1970_fall_s2_139_p556",
+    "cloudCoverage": 48,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_139_p556_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_139_p556_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_139_p556_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_139_p620",
+    "filename": "ROIs1970_fall_s2_139_p620",
+    "cloudCoverage": 53,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_139_p620_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_139_p620_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_139_p620_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_139_p664",
+    "filename": "ROIs1970_fall_s2_139_p664",
+    "cloudCoverage": 43,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_139_p664_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_139_p664_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_139_p664_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_139_p764",
+    "filename": "ROIs1970_fall_s2_139_p764",
+    "cloudCoverage": 63,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_139_p764_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_139_p764_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_139_p764_mask.png"
+    }
+  },
+  {
+    "id": "ROIs1970_fall_s2_139_p816",
+    "filename": "ROIs1970_fall_s2_139_p816",
+    "cloudCoverage": 71,
+    "previews": {
+      "cloudy": "previews/ROIs1970_fall_s2_139_p816_cloudy.png",
+      "sar": "previews/ROIs1970_fall_s2_139_p816_sar.png",
+      "mask": "previews/ROIs1970_fall_s2_139_p816_mask.png"
+    }
+  }
+]

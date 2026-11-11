@@ -8,23 +8,24 @@ export interface MetricDelta {
 }
 
 export const METRIC_TOOLTIPS = {
-  psnr: 'Peak Signal-to-Noise Ratio (dB) — Higher is better (greater optical reconstruction fidelity)',
-  sam: 'Spectral Angle Mapper (rad) — Lower is better (smaller spectral distortion angle vs target)',
+  psnr: 'Peak Signal-to-Noise Ratio (dB) — Higher is better; measured over cloud-covered pixels (full image when little or no cloud)',
+  sam: 'Spectral Angle Mapper (°) — Lower is better; measured over cloud-covered pixels (full image when little or no cloud)',
   edgeCorr: 'Edge Correlation Coefficient [0–1] — Higher is better (preserves structural land boundaries)',
-  hfRetention: 'High-Frequency Retention [0–1] — Higher is better (retains fine textures & spatial detail)',
+  hfRetention: 'High-Frequency Retention (ratio) — Closer to 1.0 is better (1.0 matches ground truth detail, values can exceed 1.0)',
 };
 
 export const METRIC_LABELS = {
   psnr: 'PSNR (dB)',
-  sam: 'SAM',
+  sam: 'SAM (°)',
   edgeCorr: 'Edge Corr',
   hfRetention: 'HF Retention',
 };
 
 /**
  * Calculates direction-aware delta between test and reference metric.
- * For PSNR, edgeCorr, hfRetention: higher is better (positive diff = improvement).
- * For SAM: lower is better (negative diff = improvement, i.e., spectral error reduced).
+ * - PSNR, edgeCorr: higher is better (positive diff = improvement).
+ * - SAM: lower is better (in degrees; negative diff = improvement).
+ * - HF Retention: ratio where 1.0 is ground truth; closer to 1.0 is better (|test - 1.0| < |ref - 1.0|).
  */
 export function calculateDelta(
   testVal: number,
@@ -32,13 +33,16 @@ export function calculateDelta(
   metricKey: keyof Metrics
 ): MetricDelta {
   const diff = Math.round((testVal - refVal) * 1000) / 1000;
-  const isSam = metricKey === 'sam';
 
   let isImproved = false;
-  if (isSam) {
-    isImproved = diff < 0;
+  if (metricKey === 'sam') {
+    isImproved = testVal < refVal;
+  } else if (metricKey === 'hfRetention') {
+    const testDist = Math.abs(testVal - 1.0);
+    const refDist = Math.abs(refVal - 1.0);
+    isImproved = testDist < refDist;
   } else {
-    isImproved = diff > 0;
+    isImproved = testVal > refVal;
   }
 
   let arrow: 'up' | 'down' | 'neutral' = 'neutral';
@@ -46,7 +50,7 @@ export function calculateDelta(
   else if (diff < 0) arrow = 'down';
 
   const sign = diff > 0 ? '+' : '';
-  const decimals = metricKey === 'psnr' ? 2 : 3;
+  const decimals = metricKey === 'psnr' ? 2 : (metricKey === 'sam' ? 2 : 4);
   const diffText = `${sign}${diff.toFixed(decimals)}`;
 
   return { diff, diffText, isImproved, arrow };
@@ -54,6 +58,8 @@ export function calculateDelta(
 
 /**
  * Identify which stage holds the optimal (best) value for each metric.
+ * Stages can legitimately have identical metric values (e.g. final == cloudy at 0% cloud,
+ * final == sharpened at 100% cloud); later stages are favored gracefully.
  */
 export function getBestMetricStages(metrics: {
   cloudy: Metrics;
@@ -78,16 +84,16 @@ export function getBestMetricStages(metrics: {
   // Best PSNR is highest
   let maxPsnr = -Infinity;
   stages.forEach((s) => {
-    if (metrics[s].psnr > maxPsnr) {
+    if (metrics[s].psnr >= maxPsnr) {
       maxPsnr = metrics[s].psnr;
       bestStages.psnr = s;
     }
   });
 
-  // Best SAM is lowest
+  // Best SAM is lowest (degrees)
   let minSam = Infinity;
   stages.forEach((s) => {
-    if (metrics[s].sam < minSam) {
+    if (metrics[s].sam <= minSam) {
       minSam = metrics[s].sam;
       bestStages.sam = s;
     }
@@ -96,17 +102,18 @@ export function getBestMetricStages(metrics: {
   // Best EdgeCorr is highest
   let maxEdge = -Infinity;
   stages.forEach((s) => {
-    if (metrics[s].edgeCorr > maxEdge) {
+    if (metrics[s].edgeCorr >= maxEdge) {
       maxEdge = metrics[s].edgeCorr;
       bestStages.edgeCorr = s;
     }
   });
 
-  // Best HF Retention is highest
-  let maxHf = -Infinity;
+  // Best HF Retention is closest to 1.0 (ground truth ratio)
+  let minHfDist = Infinity;
   stages.forEach((s) => {
-    if (metrics[s].hfRetention > maxHf) {
-      maxHf = metrics[s].hfRetention;
+    const dist = Math.abs(metrics[s].hfRetention - 1.0);
+    if (dist <= minHfDist) {
+      minHfDist = dist;
       bestStages.hfRetention = s;
     }
   });
